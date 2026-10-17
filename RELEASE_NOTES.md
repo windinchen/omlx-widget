@@ -74,5 +74,5 @@ cd omlx-widget
 ### 校验和
 
 ```
-SHA256 (oMLX 小工具 1.8.dmg) = d3d3fb2b07819e32a5a1be79101a8de399dfa20fa9d549c215e70074ea2d00e9
+SHA256 (oMLX 小工具 1.8.dmg) = 8f118dd18f2f4061f6e4633ec6094919b62d5cddcf0e898bec3acd402ed933d5
 ```
