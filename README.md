@@ -65,10 +65,18 @@
 
 ## 连接哪台 oMLX
 
-默认地址 `http://127.0.0.1:7979`，也就是已经在跑的 SSH 隧道 LaunchAgent
-`ai.hermes.omlx-tunnel`（本地 7979 → 远端 127.0.0.1:7979）。
+默认地址 `http://127.0.0.1:7979`。这个默认值假定你已经把远端 oMLX 映射到本地 7979，
+常见做法是开一条 SSH 隧道：
 
-- 局域网直连：设置里填 `http://192.168.31.191:7979`（`/admin/api/server-info` 会列出该机的别名和端口）
+```bash
+# 把远端机器的 7979 映射到本机 7979（后台常驻）
+ssh -f -N -L 7979:127.0.0.1:7979 you@your-host
+```
+
+想开机自动重连，可以把它做成 launchd LaunchAgent，或改用其他端口后
+在设置里直接填对应的地址。
+
+- 局域网直连：设置里填 `http://<远端机器 IP>:7979`（`/admin/api/server-info` 会列出该机的别名和端口）
 - 本机 oMLX：`http://127.0.0.1:8000`
 - 多台机器：设置里"添加服务器"，点左侧圆圈切换当前服务器；切换后曲线与统计会重置重算
 - 只想临时试一个地址：`OMLX_WIDGET_URL=http://127.0.0.1:8000 ".build/oMLX 小工具.app/Contents/MacOS/omlx-widget" &`
@@ -87,7 +95,7 @@ oMLX 的 HTTP 接口不吐 GPU 占用和温度（它自己的控制台也只有 
 - 摄氏度与风扇：`macmon pipe -s 1`（免 sudo），找不到时卡片会提示装一下：
 
 ```bash
-# 在 Studio 上执行一次即可，小工具有装就用，没装也能看占用
+# 在远端那台机器上执行一次即可，小工具有装就用，没装也能看占用
 brew install macmon
 ```
 
@@ -117,7 +125,7 @@ brew install macmon
 ## 排障
 
 - **显示"离线 / 连不上服务器"**：隧道或 oMLX 没起。先 `curl http://127.0.0.1:7979/api/status` 自检；
-  需要时 `launchctl kickstart -k gui/$(id -u)/ai.hermes.omlx-tunnel` 重连隧道
+  隧道若做成了 LaunchAgent，可用 `launchctl kickstart -k gui/$(id -u)/<你的隧道标签>` 重连
 - **速度数字跳动或归零**：`tokens/s` 只反映采样窗口内的真实吐字，空闲时几秒内归零属正常；
   要看长期表现用今日面板里的"生成均速"
 - **编译报 `@State` 宏找不到**：本项目刻意不使用 SwiftUI 宏（CLT 单独安装时缺 `SwiftUIMacros` 插件），

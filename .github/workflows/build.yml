@@ -1,0 +1,69 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 编译并打包
+    runs-on: macos-14
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 环境信息
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+          uname -m
+
+      - name: 构建（release）
+        run: ./build.sh --release
+
+      - name: 验证产物
+        run: |
+          set -euo pipefail
+          APP=".build/oMLX 小工具.app"
+          test -d "$APP"
+          test -x "$APP/Contents/MacOS/omlx-widget"
+          plutil -lint "$APP/Contents/Info.plist"
+          codesign --verify --deep --strict "$APP"
+          echo "产物校验通过"
+          du -sh "$APP"
+          ldd "$APP/Contents/MacOS/omlx-widget" 2>/dev/null || otool -L "$APP/Contents/MacOS/omlx-widget" | head -10
+
+      - name: 打 dmg
+        id: dmg
+        run: |
+          set -euo pipefail
+          ./build.sh --dmg
+          DMG=$(ls -t "$HOME/Desktop"/oMLX*.dmg | head -1)
+          echo "dmg: $DMG"
+          shasum -a 256 "$DMG" | tee SHA256.txt
+          echo "path=$DMG" >> "$GITHUB_OUTPUT"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: omlx-widget-dmg
+          path: |
+            ${{ steps.dmg.outputs.path }}
+            SHA256.txt
+          retention-days: 14
+
+      - name: 附加到 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DMG="${{ steps.dmg.outputs.path }}"
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes
+          gh release upload "${GITHUB_REF_NAME}" "$DMG" SHA256.txt --clobber
