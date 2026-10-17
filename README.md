@@ -1,69 +1,225 @@
 # oMLX 桌面小工具
 
-原生 macOS 菜单栏 + 桌面浮窗，用来看家里那台跑 oMLX 的机器：实时生成速度、token 用量、
-统一内存压力、模型加载状态。零第三方依赖，只需要 Xcode Command Line Tools。
+> 原生 macOS 菜单栏工具，用来盯住跑 oMLX 推理服务的那台机器。
 
-## 能看什么
+实时看到**生成速度、token 用量、统一内存压力、GPU 占用与温度、模型加载状态**——
+不用切窗口，不用开浏览器，扫一眼菜单栏就知道机器现在忙不忙、热不热、快不快。
 
-- **实时生成速度**（tokens/s）：推理瞬间取服务端逐请求统计值，空闲时按 token 增量估算并快速衰减，配一条迷你速度曲线
-- **请求中 / 排队数**
-- **多任务多色曲线**：同时有两个以上请求在吐字时，速度曲线区自动换成**每个任务一条自己的曲线**，
-  8 色循环配色跟着请求走（老任务滑出窗口不会让后面任务变色），每条只画该任务真正在生成那一段，右端点小圆点收尾。
-  曲线下方换上一行同色图例（取前 3 条，其余折成 `+N`），面板里的逐请求行也用同一个颜色，方便对号；
-  只剩一个任务时回到原来那条绿色总速度曲线、内存进度条归位。
-  浮窗里这一行的优先级是「预填充文案 > 多任务图例 > 内存进度条」
-- **预填充**：蓝色显示预填充速度与进度，含"已处理 / 总 token"、百分比与耗时；桌面浮窗在预填充期间
-  直接把**整张卡片当进度条**——半透明蓝从左往右漫过卡面、描边变蓝、右边沿给一条亮蓝进度头，
-  卡片上另有一行蓝色"预填充 88% · 1316 t/s"。蓝色压在文字下方，低透明度时字依旧清楚；
-  进度未知时改成整卡呼吸式微蓝，不会出现空白的进度条
-- **统一内存占用**：进度条上标出 oMLX 的软/硬阈值，右侧给"内存充裕 / 接近上限 / 内存吃紧"
-- **GPU 与温度**：GPU 占用（Device / Renderer / Tiler）、GPU 显存、CPU 占用与负载、CPU / GPU 摄氏度、
-  整机功耗与风扇转速，右上角给"正常 / 偏热 / 很热 / 过热"热度标签
-- **今日用量**：请求数、tokens、缓存命中率、平均耗时、生成/预填充均速，外加今日 24 小时用量柱状图和最近 7 天总量
-- **模型清单**：是否已加载、体积、上下文长度、常驻标记、引擎类型，可一键加载 / 卸载
-- **测速按钮**：往默认模型发一条小请求，返回端到端 tokens/s（含首字延迟），适合刚换配置时对比
-- **菜单栏标题**实时显示速度，可切"状态 + 速度 / 仅速度 / 仅状态点"
-- **桌面浮窗**按住卡片任意位置都能拖走并记住位置（拖动时不会掉出屏幕可视区，右上角 ✕ 只在"没拖动"时生效），
-  可选置顶或普通层级；设置里三个滑块分别调**不透明度**（30%～100%，
-  只作用在背景，文字与图表始终满强度绘制）、**字色亮度**（0～100%）、**字号**（80%～140%，整卡等比放大）。
-  亮度档位逐级叠加：小字对比度提到纯白、文字与图形叠同色辉光、卡面垫一层 `.textBackgroundColor`
-  对比衬底（深浅色自适应）、进度条与速度曲线同步提亮并在高档位加粗。实测不透明度 35% 时文字峰值亮度
-  仍有 0.95（按旧的"内容一起变透明"写法只有 0.80）；全不透明时小字与卡面亮度差 0.43，约为最初版本的 3.6 倍
-- **白天 / 夜晚外观**：设置里"外观"可切**跟随系统 / 白天 / 夜晚**，面板底部也有个日夜按钮点着轮转。
-  浮窗、详情面板、设置窗口一起换肤；字色亮度的方向跟着翻——深色底往纯白提亮，浅色底往纯黑压深，
-  两种外观都是拉开与卡面的对比。**状态栏图标不跟着染**，始终按系统本身的深浅色上色，避免"深字压深底"看不见
+**零第三方依赖**，只需要 Xcode Command Line Tools。约 3,500 行 Swift，纯 AppKit + SwiftUI。
 
-## 用法
-
-```bash
-./build.sh --run      # 编译并启动
-./build.sh --release  # 优化编译
-./build.sh --install  # 复制到 /Applications
-./build.sh --dmg      # 打成 dmg 安装包放到桌面（隐含 --release）
+```
+菜单栏：  ● 87.4 t/s
+浮窗：    ┌────────────────────┐
+          │ 87.4 t/s        ✕  │  ← 可拖动、可调透明度
+          │ ▁▂▄▆█▇▅▃▂▁         │
+          │ 内存 42.1 / 128 GB │
+          └────────────────────┘
 ```
 
-菜单栏出现小圆点即成功：
+---
 
-- 左键：弹出 / 收起详情面板（面板里也能测速、开关浮窗、进设置）
-- 右键：菜单（立即刷新 / 发送测速请求 / 桌面浮窗 / 浮窗置顶 / 打开控制台 / 设置 / 退出）
-- 再次启动 App（或从访达双击）等同于弹出面板
-- 设置里可打开"登录后自动启动"
+## 目录
 
-## 打成安装包
+- [功能](#功能)
+- [安装](#安装)
+- [第一次配置](#第一次配置)
+- [界面说明](#界面说明)
+- [连接服务器](#连接服务器)
+- [GPU 与温度（SSH 采集）](#gpu-与温度ssh-采集)
+- [设置项详解](#设置项详解)
+- [用到的接口](#用到的接口)
+- [常见问题](#常见问题)
+- [从源码构建](#从源码构建)
+- [代码结构](#代码结构)
+- [可以继续加](#可以继续加)
 
-`./build.sh --dmg` 产出 `~/Desktop/oMLX 小工具 <版本>.dmg`：打开是 App 加一个 `Applications` 快捷方式，
-拖过去就装好，另带一份 `安装说明.txt`。要点：
+---
 
-- 版本号取自 `build.sh` 里的 `VERSION`，改了名字跟着变
-- 本机 ad-hoc 签名、没做公证：自己用没问题，发给别人首次打开要右键 → 打开确认一次
-- 打包用 `ditto --noextattr` 且暂存在桌面之外，否则桌面开了 iCloud 同步会给 `.app` 补
-  `com.apple.FinderInfo`，`codesign --strict` 判定"detritus not allowed"，别人打开会报"已损坏"
-- 图标是 `Tools/make-icon.swift` 用 CoreGraphics 画的（照浮窗画的：卡面 + 蓝色预填充漫过 + 三条任务曲线），
-  改完重画一次 icns：
-  `xcrun swiftc -O Tools/make-icon.swift -o /tmp/make-icon && /tmp/make-icon /tmp/AppIcon-1024.png`，
-  再用 `sips` 缩放成 `AppIcon.iconset` 各尺寸、`iconutil -c icns` 合成 `Resources/AppIcon.icns`
+## 功能
 
-## 连接哪台 oMLX
+### 速度与负载
+
+- **实时生成速度（tokens/s）**
+  推理瞬间优先取服务端逐请求统计值（`tokens_per_second`），空闲时按 token 增量估算并快速衰减。
+  配一条迷你速度曲线，能看出刚才是不是真的在吐字。
+
+- **多任务多色曲线**
+  同时有两个以上请求在生成时，速度曲线区自动切换成**每个任务一条自己的曲线**，
+  8 色循环配色跟着请求走——老任务滑出窗口不会让后面任务变色。
+  每条只画该任务真正在生成的那一段，右端点用小圆点收尾。
+  曲线下方给一行同色图例（取前 3 条，其余折成 `+N`），面板里的逐请求行也用同一颜色，方便对号。
+  回到单任务时，自动变回那条绿色总速度曲线、内存进度条归位。
+
+- **预填充（Prefill）可视化**
+  蓝色显示预填充速度与进度，含「已处理 / 总 token」、百分比与耗时。
+  桌面浮窗在预填充期间**把整张卡片当进度条**——半透明蓝从左往右漫过卡面、描边变蓝、
+  右边沿给一条亮蓝进度头，卡片上另有一行蓝色「预填充 88% · 1316 t/s」。
+  蓝色压在文字下方，低透明度时字依旧清楚；进度未知时改成整卡呼吸式微蓝，不会出现空白进度条。
+
+- **请求中 / 排队数**
+  一眼看出是不是卡在队列上。
+
+### 资源监控
+
+- **统一内存占用**
+  进度条上标出 oMLX 的软 / 硬阈值，右侧给「内存充裕 / 接近上限 / 内存吃紧」的人话判断。
+
+- **GPU 与温度**
+  GPU 占用（Device / Renderer / Tiler 三项）、GPU 显存、CPU 占用与负载、
+  CPU / GPU 摄氏度、整机功耗与风扇转速。
+  右上角给「正常 / 偏热 / 很热 / 过热」热度标签。
+
+  > 这部分通过 SSH 在远端采集，见 [GPU 与温度](#gpu-与温度ssh-采集)。
+
+### 用量统计
+
+- **今日用量**：请求数、tokens、缓存命中率、平均耗时、生成 / 预填充均速
+- **24 小时柱状图**：今日每小时 token 分布，看得出使用节奏
+- **最近 7 天总量**：跨天对比
+
+### 模型管理
+
+- **模型清单**：是否已加载、体积、上下文长度、常驻标记、引擎类型
+- **一键加载 / 卸载**：不用去控制台点
+
+### 测速
+
+- **测速按钮**：往默认模型发一条小请求（「从 1 数到 40」，`max_tokens: 160`，`temperature: 0`），
+  返回端到端 tokens/s（**含首字延迟**）。适合刚换配置、调完量化参数时做对比。
+
+### 桌面体验
+
+- **菜单栏标题实时显示速度**，可切四档：
+  - 状态 + 速度（默认）
+  - 仅速度
+  - GPU + 温度
+  - 仅状态点
+
+- **桌面浮窗**
+  - 按住卡片**任意位置**都能拖走，位置自动记住
+  - 拖动时不会掉出屏幕可视区；换显示器后坐标失效会自动重摆回默认位置
+  - 右上角 ✕ 只在「没拖动」时生效，不会误关
+  - 可选置顶或普通层级
+  - 三个滑块分别调**不透明度**（30%–100%，只作用在背景，文字与图表始终满强度绘制）、
+    **字色亮度**（0–100%）、**字号**（80%–140%，整卡等比放大）
+
+- **白天 / 夜晚外观**
+  设置里「外观」可切**跟随系统 / 白天 / 夜晚**，面板底部也有日夜按钮点着轮转。
+  浮窗、详情面板、设置窗口一起换肤；字色亮度的方向跟着翻——
+  深色底往纯白提亮，浅色底往纯黑压深，两种外观都拉开与卡面的对比。
+  状态栏图标**不跟着染色**，始终按系统本身的深浅色上色，避免「深字压深底」看不见。
+
+---
+
+## 安装
+
+### 从 Release 下载（推荐）
+
+1. 打开 [Releases](https://github.com/windinchen/omlx-widget/releases) 下载最新的 `oMLX 小工具 x.x.dmg`
+2. 双击打开，把 `oMLX 小工具.app` 拖到旁边的 `Applications`
+3. 从「应用程序」启动，**菜单栏出现小圆点**即成功
+
+> **首次打开提示「无法验证开发者」**
+> 这是正常的——本项目用 ad-hoc 签名，没有付费开发者账号做公证。
+> 右键 App 图标 → `打开` → 在弹窗里再点一次 `打开`，之后不会再问。
+
+**系统要求**：macOS 14.0+，Apple Silicon（arm64）。
+
+### 从源码构建
+
+见 [从源码构建](#从源码构建)。
+
+---
+
+## 第一次配置
+
+装好启动后，菜单栏出现小圆点。**默认连 `http://127.0.0.1:7979`**——
+如果你没有这个端口的服务，会显示「离线」。按下面两步配好：
+
+### 1. 让它连上你的 oMLX
+
+右键菜单栏图标 → **设置…** → 「服务器」区块：
+
+- **本机直接跑 oMLX**：地址填 `http://127.0.0.1:8000`
+- **远端机器 + SSH 隧道**（最常见）：先在本地建隧道，再填 `http://127.0.0.1:7979`
+  ```bash
+  # 把远端 7979 映射到本地 7979（-f 转后台，-N 不执行远程命令）
+  ssh -f -N -L 7979:127.0.0.1:7979 you@your-host
+  ```
+- **局域网直连**：填 `http://<远端机器 IP>:7979`，例如 `http://192.168.1.50:7979`
+
+点左边的圆圈切换当前使用的服务器。支持添加多台，切换后曲线与统计会重置重算。
+
+> **oMLX 开了鉴权？** 在「服务器」区块右侧的 `API Key` 框里填，
+> 会以 `Authorization: Bearer <key>` 发送。留空表示不鉴权。
+
+### 2.（可选）配置 GPU 与温度
+
+oMLX 的 HTTP 接口不提供 GPU 占用和温度，这部分由小工具通过 `ssh` 在远端跑几条**零权限**命令采集。
+
+同一页往下拉到「GPU 与温度」区块：
+
+- **SSH 目标**：填 `user@host`，例如 `you@192.168.1.50`
+- **前提**：本机能免密登录那台机器。先手动验证：
+  ```bash
+  ssh you@your-host 'ioreg -rd1 -c IOAccelerator | head'
+  ```
+  能出东西就说明通了。不通先配公钥：`ssh-copy-id you@your-host`
+- **想要温度读数**：在那台机器上装一次 `macmon`
+  ```bash
+  brew install macmon
+  ```
+  没装也能看 GPU 占用、显存和降频状态，只是温度显示「—」。
+
+不想用这个功能，把「采集 GPU 利用率与温度」开关关掉即可，其余功能不受影响。
+
+---
+
+## 界面说明
+
+### 菜单栏
+
+- **左键**：弹出 / 收起详情面板
+- **右键**：菜单
+
+  | 菜单项 | 快捷键 | 说明 |
+  |---|---|---|
+  | 立即刷新 | ⌘R | 手动拉一次数据 |
+  | 发送测速请求 | | 往默认模型发一条小请求测端到端速度 |
+  | 桌面浮窗 | | 开关浮窗 |
+  | 浮窗置顶 | | 浮窗是否压在其他窗口上方 |
+  | 打开控制台 | ⌘D | 用浏览器打开 oMLX 自身的 Web 控制台 |
+  | 设置… | ⌘, | 打开设置窗口 |
+  | 退出 oMLX 小工具 | ⌘Q | 退出 |
+
+- **悬停**：tooltip 显示模型数、内存占用、今日 tokens 与请求数
+- **再次启动 App**（或从访达双击）等同于弹出面板
+
+### 详情面板
+
+从上到下：
+
+1. **顶部状态区** — 连接状态、当前服务器、模型数
+2. **速度区** — 大号 t/s 数字 + 迷你曲线（多任务时切成多色曲线 + 图例）
+3. **预填充行** — 正在预填充时出现，蓝色，带进度与速度
+4. **内存区** — 进度条 + 软 / 硬阈值标记 + 状态文字
+5. **GPU / CPU 区** — 占用、温度、功耗、风扇
+6. **今日用量** — 请求数、tokens、缓存命中率、均速，外加 24 小时柱状图
+7. **模型清单** — 可滚动，每个模型带加载 / 卸载按钮
+
+面板高度不够时中间区域可滚动，模型多时往下滚。
+
+### 桌面浮窗
+
+一张半透明卡片，默认在屏幕右上角：
+
+- **拖动**：按住任意位置拖
+- **关闭**：点右上角 ✕（只有没拖动时才生效）
+- **内容优先级**：预填充文案 > 多任务图例 > 内存进度条
+
+---
+
+## 连接服务器
 
 默认地址 `http://127.0.0.1:7979`。这个默认值假定你已经把远端 oMLX 映射到本地 7979，
 常见做法是开一条 SSH 隧道：
@@ -73,90 +229,346 @@
 ssh -f -N -L 7979:127.0.0.1:7979 you@your-host
 ```
 
-想开机自动重连，可以把它做成 launchd LaunchAgent，或改用其他端口后
-在设置里直接填对应的地址。
+想开机自动重连，可以把它做成 launchd LaunchAgent，或改用其他端口后在设置里直接填对应的地址。
 
-- 局域网直连：设置里填 `http://<远端机器 IP>:7979`（`/admin/api/server-info` 会列出该机的别名和端口）
-- 本机 oMLX：`http://127.0.0.1:8000`
-- 多台机器：设置里"添加服务器"，点左侧圆圈切换当前服务器；切换后曲线与统计会重置重算
-- 只想临时试一个地址：`OMLX_WIDGET_URL=http://127.0.0.1:8000 ".build/oMLX 小工具.app/Contents/MacOS/omlx-widget" &`
+### 三种常见拓扑
 
-如果 oMLX 开了鉴权，在设置里填 API Key（以 `Authorization: Bearer <key>` 发送）。
+| 场景 | 设置里填 | 说明 |
+|---|---|---|
+| oMLX 跑在本机 | `http://127.0.0.1:8000` | 最简单 |
+| 远端机器 + SSH 隧道 | `http://127.0.0.1:7979` | 推荐，跨网络也安全 |
+| 同一局域网 | `http://<远端 IP>:7979` | 延迟最低，注意 oMLX 是否只监听 loopback |
 
-## GPU 与温度（走 SSH）
+> `/admin/api/server-info` 会列出该机的别名和端口，不确定时可以先 `curl` 看看。
 
-oMLX 的 HTTP 接口不吐 GPU 占用和温度（它自己的控制台也只有 `ProcessInfo.thermalState` 这个热度档位），
-所以这部分由小工具通过 `ssh` 在远端跑几条**零权限**命令采集，默认目标 `windnchen@172.47.68.21`，
-在设置 → "GPU 与温度" 里可改地址或整个关掉。
+### 开机自动建隧道（launchd）
 
-- GPU 占用 / 显存：`ioreg -rd1 -c IOAccelerator` 的 `PerformanceStatistics`
-- CPU 占用与负载：`iostat` + `sysctl vm.loadavg`
-- 降频状态：`pmset -g therm`
-- 摄氏度与风扇：`macmon pipe -s 1`（免 sudo），找不到时卡片会提示装一下：
+隧道要常驻的话，做个 LaunchAgent。存为 `~/Library/LaunchAgents/local.omlx-tunnel.plist`：
 
-```bash
-# 在远端那台机器上执行一次即可，小工具有装就用，没装也能看占用
-brew install macmon
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>local.omlx-tunnel</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/ssh</string>
+        <string>-N</string>
+        <string>-o</string><string>BatchMode=yes</string>
+        <string>-o</string><string>ServerAliveInterval=20</string>
+        <string>-o</string><string>ServerAliveCountMax=3</string>
+        <string>-o</string><string>ExitOnForwardFailure=yes</string>
+        <string>-L</string><string>7979:127.0.0.1:7979</string>
+        <string>you@your-host</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>10</integer>
+</dict>
+</plist>
 ```
 
-采集走 `ControlMaster` 复用连接，一次约 2 秒（缺 macmon 时约 4 秒），与 HTTP 轮询各跑各的循环，
-互不阻塞；SSH 不通时卡片显示失败原因，不影响速度 / 用量等其余功能。
+```bash
+launchctl load ~/Library/LaunchAgents/local.omlx-tunnel.plist
+```
 
-菜单栏还能切成"GPU + 温度"档，直接显示 `GPU 97% · 62°`。
+### 临时试一个地址
+
+不想改设置：
+
+```bash
+OMLX_WIDGET_URL=http://127.0.0.1:8000 \
+  ".build/oMLX 小工具.app/Contents/MacOS/omlx-widget" &
+```
+
+---
+
+## GPU 与温度（SSH 采集）
+
+oMLX 的 HTTP 接口不吐 GPU 占用和温度（它自己的控制台也只有 `ProcessInfo.thermalState` 这个热度档位），
+所以这部分由小工具通过 `ssh` 在远端跑几条**零权限**命令采集。
+
+### 采集了什么
+
+| 数据 | 命令 | 说明 |
+|---|---|---|
+| GPU 占用 / 显存 | `ioreg -rd1 -c IOAccelerator` | 取 `PerformanceStatistics` 的 Device / Renderer / Tiler 利用率 |
+| CPU 占用与负载 | `iostat` + `sysctl vm.loadavg` | |
+| 降频状态 | `pmset -g therm` | |
+| 摄氏度与风扇 | `macmon pipe -s 1` | 免 sudo；未安装时卡片会提示 |
+
+### 连接方式
+
+走 `ControlMaster` 复用连接，避免每次采集都重新握手：
+
+```
+ControlMaster=auto
+ControlPath=~/.ssh/cm-omlx-widget-%r@%h:%p
+ControlPersist=300
+```
+
+一次采集约 **2 秒**（缺 macmon 时约 4 秒），与 HTTP 轮询各跑各的循环，互不阻塞。
+
+**SSH 不通时**：卡片显示失败原因，不影响速度、用量等其余功能。
+
+### 前置条件
+
+1. 本机能免密 `ssh` 到目标机器（公钥认证）
+2. 目标机器上可选装 `macmon` 拿温度：`brew install macmon`
+
+菜单栏还能切成「GPU + 温度」档，直接显示 `GPU 97% · 62°`。
+
+---
+
+## 设置项详解
+
+右键菜单 → 设置…，共四个区块。
+
+### 服务器
+
+| 项 | 说明 |
+|---|---|
+| 服务器列表 | 每行：单选圆圈 + 名称 + 地址 + 删除按钮（至少保留一台） |
+| 添加服务器 | 追加一台，默认 `http://127.0.0.1:8000` |
+| API Key | 可选。填了就带 `Authorization: Bearer`，留空不鉴权 |
+
+### 刷新与显示
+
+| 项 | 范围 | 说明 |
+|---|---|---|
+| 外观 | 跟随系统 / 白天 / 夜晚 | 影响浮窗、面板、设置窗口（状态栏图标除外） |
+| 菜单栏内容 | 四档 | 状态+速度 / 仅速度 / GPU+温度 / 仅状态点 |
+| 刷新间隔 | 1–60 秒，默认 3 | 状态与活动按此间隔拉取 |
+| 显示今日 24 小时用量柱状图 | 开关 | |
+| 显示桌面浮窗 | 开关 | |
+| 浮窗保持置顶 | 开关 | 关闭浮窗时该项禁用 |
+| 浮窗不透明度 | 30%–100% | 只作用背景，文字与图表始终满强度 |
+| 浮窗字色亮度 | 0%–100% | 同时提高文字对比度、进度条与曲线亮度 |
+| 浮窗字号 | 80%–140% | 整卡等比放大，顶边保持不动 |
+
+### GPU 与温度
+
+| 项 | 说明 |
+|---|---|
+| 采集 GPU 利用率与温度 | 总开关，关掉后下面各项禁用 |
+| SSH 目标（user@host） | 采集目标 |
+| 菜单栏改成显示 GPU 与温度 | 等价于把「菜单栏内容」切到 GPU 档 |
+| 最近一次采集 | 显示时间或错误原因，方便排障 |
+
+### 系统
+
+| 项 | 说明 |
+|---|---|
+| 登录后自动启动 | 通过 `SMAppService` 注册登录项 |
+| 当前状态 | 在线时显示服务器名与已加载模型数，离线时显示错误 |
+
+---
 
 ## 用到的接口
 
-只读：
+### 只读
 
-- `GET /api/status` — 版本、运行时长、请求数、累计 token、平均速度、模型内存
-- `GET /admin/api/activity` — 逐请求实时 `tokens_per_second`、预填充/排队队列、内存压力软硬阈值
-- `GET /admin/api/usage?range=today|7d` — 今日/七日汇总与 24 小时 token 分布
-- `GET /v1/models/status` — 模型清单、体积、上下文长度、加载状态
+| 接口 | 用途 |
+|---|---|
+| `GET /api/status` | 版本、运行时长、请求数、累计 token、平均速度、模型内存 |
+| `GET /admin/api/activity` | 逐请求实时 `tokens_per_second`、预填充 / 排队队列、内存压力软硬阈值 |
+| `GET /admin/api/usage?range=today\|7d` | 今日 / 七日汇总与 24 小时 token 分布 |
+| `GET /v1/models/status` | 模型清单、体积、上下文长度、加载状态 |
 
-动作：
+### 动作
 
-- `POST /v1/models/{id}/load`、`POST /v1/models/{id}/unload`
-- `POST /v1/chat/completions`（测速请求，约 160 tokens）
+| 接口 | 用途 |
+|---|---|
+| `POST /v1/models/{id}/load` | 加载模型 |
+| `POST /v1/models/{id}/unload` | 卸载模型 |
+| `POST /v1/chat/completions` | 测速请求，约 160 tokens |
 
-轮询：状态与活动按设置间隔拉取（默认 3 秒），用量与模型清单约 45 秒一次，打开面板时立即全量刷新。
+### 轮询节奏
 
-注意：GPU 占用、温度、功耗、风扇**不来自 HTTP 接口**，见上一节的 SSH 采集说明。
+- **状态与活动**：按设置间隔（默认 3 秒）
+- **用量与模型清单**：约 45 秒一次
+- **打开面板时**：立即全量刷新
 
-## 排障
+> GPU 占用、温度、功耗、风扇**不来自 HTTP 接口**，见 [GPU 与温度](#gpu-与温度ssh-采集)。
 
-- **显示"离线 / 连不上服务器"**：隧道或 oMLX 没起。先 `curl http://127.0.0.1:7979/api/status` 自检；
-  隧道若做成了 LaunchAgent，可用 `launchctl kickstart -k gui/$(id -u)/<你的隧道标签>` 重连
-- **速度数字跳动或归零**：`tokens/s` 只反映采样窗口内的真实吐字，空闲时几秒内归零属正常；
-  要看长期表现用今日面板里的"生成均速"
-- **编译报 `@State` 宏找不到**：本项目刻意不使用 SwiftUI 宏（CLT 单独安装时缺 `SwiftUIMacros` 插件），
-  若改代码请避免 `@State` / `@Binding` / `@Observable`
-- **GPU 与温度卡片空白 / 报 SSH 连接失败**：小工具靠 `ssh` 免密登录远端，先手动确认
-  `ssh windnchen@172.47.68.21 'ioreg -rd1 -c IOAccelerator | head'` 能出东西；换了机器就改设置里的地址
-- **温度显示"—"但 GPU 占用正常**：远端没装 macmon，或不在 `/opt/homebrew/bin` / `/usr/local/bin`，
-  `brew install macmon` 后下一个轮询周期就有了
-- **预填充行一闪而过**：预填充通常只有 1～3 秒，面板按设置间隔采样；prompt 越长停留越久。
-  反复发同一段文本会命中前缀缓存、几乎不产生预填充，想盯着进度看就换一段全新长文本
-- **多任务曲线挤在右边**：所有曲线与服务端轮询同一时间轴对齐，任务从它开始吐字的那一刻画起，
-  之前是留白，所以空闲很久之后一起来的任务都靠在右侧；曲线窗口固定 90 个采样点
-- **面板高度不够**：中间区域可滚动，模型多时向下滚
-- **切了日夜但菜单栏图标没变**：有意如此。菜单栏由系统着色，小工具只把浮窗 / 面板 / 设置窗口切过去，
-  状态栏图标固定按系统深浅色绘制，否则会出现系统浅色、图标也变浅导致的"隐形"
+---
+
+## 常见问题
+
+### 显示「离线 / 连不上服务器」
+
+隧道或 oMLX 没起。先自检：
+
+```bash
+curl http://127.0.0.1:7979/api/status
+```
+
+隧道若做成了 LaunchAgent，可用 `launchctl kickstart -k gui/$(id -u)/<你的隧道标签>` 重连。
+
+### 速度数字跳动或归零
+
+`tokens/s` 只反映采样窗口内的真实吐字，空闲时几秒内归零属正常。
+要看长期表现，用今日面板里的「生成均速」。
+
+### 预填充行一闪而过
+
+预填充通常只有 1–3 秒，面板按设置间隔采样；prompt 越长停留越久。
+
+> 反复发同一段文本会命中前缀缓存、几乎不产生预填充。想盯着进度看，就换一段全新的长文本。
+
+### 多任务曲线挤在右边
+
+所有曲线与服务端轮询同一时间轴对齐，任务从它开始吐字的那一刻画起，之前是留白。
+所以空闲很久之后一起来的任务都靠在右侧。曲线窗口固定 90 个采样点。
+
+### GPU 与温度卡片空白 / 报 SSH 连接失败
+
+小工具靠 `ssh` 免密登录远端，先手动确认：
+
+```bash
+ssh you@your-host 'ioreg -rd1 -c IOAccelerator | head'
+```
+
+换了机器就改设置里的地址。
+
+### 温度显示「—」但 GPU 占用正常
+
+远端没装 `macmon`，或不在 `/opt/homebrew/bin` / `/usr/local/bin`。
+`brew install macmon` 后下一个轮询周期就有了。
+
+### 切了日夜但菜单栏图标没变
+
+有意如此。菜单栏由系统着色，小工具只把浮窗 / 面板 / 设置窗口切过去，
+状态栏图标固定按系统深浅色绘制，否则会出现系统浅色、图标也变浅导致的「隐形」。
+
+### 编译报 `@State` 宏找不到
+
+本项目**刻意不使用 SwiftUI 宏**——只装 Command Line Tools 时缺 `SwiftUIMacros` 插件。
+改代码请避免 `@State` / `@Binding` / `@Observable`，用 `@Published` + `ObservableObject` 组合。
+
+### 别人打开我的 dmg 报「已损坏」
+
+桌面开了 iCloud 同步时，`fileproviderd` 会给 `.app` 补上 `com.apple.FinderInfo` 扩展属性，
+`codesign --strict` 判定「detritus not allowed」。`build.sh` 已经处理（`ditto --noextattr` +
+在桌面之外签名），自己手动打包时要照做。
+
+### 面板高度不够
+
+中间区域可滚动，模型多时向下滚。
+
+---
+
+## 从源码构建
+
+### 依赖
+
+- macOS 14.0+
+- Xcode Command Line Tools：`xcode-select --install`
+- 无需 CocoaPods / SPM / 任何第三方库
+
+### 构建命令
+
+```bash
+git clone https://github.com/windinchen/omlx-widget.git
+cd omlx-widget
+
+./build.sh --run       # 编译（debug）并启动
+./build.sh --release   # 优化编译
+./build.sh --install   # 复制到 /Applications
+./build.sh --dmg       # 打成 dmg 放到桌面（隐含 --release）
+```
+
+版本号在 `build.sh` 的 `VERSION` 变量里，改了它 dmg 名字跟着变。
+
+### 打成安装包
+
+`./build.sh --dmg` 产出 `~/Desktop/oMLX 小工具 <版本>.dmg`：
+打开是 App 加一个 `Applications` 快捷方式，拖过去就装好，另带一份 `安装说明.txt`。
+
+要点：
+
+- 本机 ad-hoc 签名、没做公证：自己用没问题，发给别人首次打开要右键 → 打开确认一次
+- 打包用 `ditto --noextattr` 且暂存在桌面之外，否则桌面开了 iCloud 同步会给 `.app` 补
+  `com.apple.FinderInfo`，`codesign --strict` 判定「detritus not allowed」，别人打开会报「已损坏」
+
+### 重画图标
+
+图标是 `Tools/make-icon.swift` 用 CoreGraphics 画的（照浮窗画的：卡面 + 蓝色预填充漫过 + 三条任务曲线）：
+
+```bash
+# 1. 生成 1024 图
+xcrun swiftc -O Tools/make-icon.swift -o /tmp/make-icon
+/tmp/make-icon /tmp/AppIcon-1024.png
+
+# 2. 用 sips 缩放出各尺寸到 AppIcon.iconset
+# 3. 合成 icns
+iconutil -c icns AppIcon.iconset -o Resources/AppIcon.icns
+```
+
+### CI
+
+推送和 PR 会触发 GitHub Actions（`.github/workflows/build.yml`）：
+release 构建 → 校验产物（可执行、`plutil -lint`、`codesign --strict`）→ 打 dmg → 上传 artifact。
+
+打 tag 推送（`git tag v1.3 && git push --tags`）时，CI 会自动把 dmg 与 `SHA256.txt` 附加到对应 Release。
+
+---
 
 ## 代码结构
 
-- `Sources/main.swift` — 入口
-- `Sources/AppController.swift` — 状态栏项、桌面浮窗、设置窗口。浮窗的拖动和关闭点击由
-  `FloatingPanel.sendEvent` 自己接管：SwiftUI 的 hosting view 会吃掉 `mouseDown`，
-  `isMovableByWindowBackground` 在这种窗口上不生效，命中区见 `FloatingCardLayout.closeRect`
-- `Sources/Model/WidgetState.swift` — 轮询、实时速度推算、加载/卸载与测速动作
-- `Sources/Model/SystemCollector.swift` — 通过 SSH 采集 GPU 占用、温度、功耗、风扇并解析
-- `Sources/Model/OmlxClient.swift` / `OmlxAPI.swift` — HTTP 客户端与接口模型
-- `Sources/Model/Preferences.swift` — 服务器列表与偏好持久化
-- `Sources/UI/` — 面板、浮窗卡片、设置页与图表组件；`Parts.swift` 里的 `Appearance` 负责日夜外观判定与调色方向
-- `Tools/make-icon.swift` / `Resources/AppIcon.icns` — App 图标的生成脚本与产物
+```
+Sources/
+├── main.swift                    入口（12 行）
+├── AppController.swift           状态栏项、桌面浮窗、设置窗口（432 行）
+├── Model/
+│   ├── WidgetState.swift         轮询、实时速度推算、加载/卸载与测速（499 行）
+│   ├── SystemCollector.swift     SSH 采集 GPU/温度/功耗/风扇并解析（351 行）
+│   ├── OmlxClient.swift          HTTP 客户端（106 行）
+│   ├── OmlxAPI.swift             接口数据模型（375 行）
+│   ├── Preferences.swift         服务器列表与偏好持久化（169 行）
+│   └── Formatters.swift          数字 / 字节 / 时间格式化（80 行）
+└── UI/
+    ├── PopoverView.swift         详情面板（605 行）
+    ├── Parts.swift               共享组件与 Appearance 调色（414 行）
+    ├── FloatingCardView.swift    桌面浮窗卡片（261 行）
+    └── SettingsView.swift        设置页（215 行）
+Tools/
+└── make-icon.swift               图标生成脚本
+```
+
+几个实现要点：
+
+- **浮窗拖动由 `FloatingPanel.sendEvent` 自己接管**：SwiftUI 的 hosting view 会吃掉 `mouseDown`，
+  `isMovableByWindowBackground` 在这种窗口上不生效。命中区见 `FloatingCardLayout.closeRect`。
+- **`Parts.swift` 里的 `Appearance`** 负责日夜外观判定与调色方向。
+  亮度档位逐级叠加：小字对比度提到纯白 → 文字与图形叠同色辉光 → 卡面垫一层 `.textBackgroundColor`
+  对比衬底（深浅色自适应）→ 进度条与曲线同步提亮并在高档位加粗。
+  实测不透明度 35% 时文字峰值亮度仍有 0.95（旧的「内容一起变透明」写法只有 0.80）；
+  全不透明时小字与卡面亮度差 0.43，约为最初版本的 3.6 倍。
+- **多任务曲线颜色跟着请求走**，不是跟着索引走——老任务滑出窗口不会让后面任务变色。
+
+---
 
 ## 可以继续加
 
-- 历史 t/s 与温度曲线：直接读远端 `~/.omlx/usage.sqlite3` 的 `model_usage_hourly`
-- KV / SSD 缓存命中、集群节点（`/admin/api/*` 已有对应接口）
-- 加载确认弹窗、全局快捷键、断线自动重连提示
+欢迎 PR。几个想到了但还没做的方向：
+
+- **历史 t/s 与温度曲线**：直接读远端 `~/.omlx/usage.sqlite3` 的 `model_usage_hourly`
+- **KV / SSD 缓存命中、集群节点**（`/admin/api/*` 已有对应接口）
+- **加载确认弹窗**：现在点卸载是立即执行，加个二次确认更稳
+- **全局快捷键**：一键呼出面板
+- **断线自动重连提示**：现在只显示失败原因，可以再主动重试几次
+
+---
+
+## 许可
+
+[MIT](LICENSE)
+
+---
+
+## 相关项目
+
+- [macmon](https://github.com/vladkens/macmon) — 提供免 sudo 的温度 / 功耗读数
