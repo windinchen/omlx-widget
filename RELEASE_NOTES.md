@@ -29,7 +29,7 @@ GPU / CPU / 温度新增**采集来源**开关：小工具跑在 oMLX 那台主�
 填 `user@host`、`host:port`、`http://host:port` 这类形式都能正确剥出主机名再比对。
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/windinchen/omlx-widget/v1.9/docs/screenshots/style-gauge.png" width="420" alt="竖向仪表样式：内存与 GPU 左右并排竖表，底部蓝色涨水">
+  <img src="https://raw.githubusercontent.com/windinchen/omlx-widget/main/docs/screenshots/style-gauge.png" width="420" alt="竖向仪表样式：内存与 GPU 左右并排竖表，底部蓝色涨水">
 </p>
 
 ---
@@ -39,7 +39,7 @@ GPU / CPU / 温度新增**采集来源**开关：小工具跑在 oMLX 那台主�
 原来是一张卡从左边往右边扫蓝色，进度头在最右沿。现在整张卡片当一个水杯：
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/windinchen/omlx-widget/v1.9/docs/screenshots/prefill.png" width="460" alt="预填充 15% 时水面已涨到卡片底部，水下有上浮气泡">
+  <img src="https://raw.githubusercontent.com/windinchen/omlx-widget/main/docs/screenshots/prefill.png" width="460" alt="预填充 15% 时水面已涨到卡片底部，水下有上浮气泡">
 </p>
 
 - **水面高度就是预填充进度**，水自底部往上涨，水色从水面向下渐淡
