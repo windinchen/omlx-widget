@@ -353,6 +353,104 @@ struct VerticalMeter: View {
     }
 }
 
+/// 预填充的「涨水」水位：从卡面底部往上灌，水面是一条缓慢起伏的正弦线。
+/// 只有 fraction 参与动画（水位平滑上涨），phase 由 TimelineView 逐帧推，不参与动画
+struct WaterLevel: Shape {
+    var fraction: Double
+    var phase: Double = 0
+    var wave: Bool = true
+
+    var animatableData: Double {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = surface(in: rect)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+
+    /// 只含水面那条线，描边用
+    func surface(in rect: CGRect) -> Path {
+        var path = Path()
+        let clamped = min(max(fraction, 0), 1)
+        let amp = wave ? min(1.8, max(0.5, rect.height * 0.035)) : 0
+        // 快灌满时把水面夹住，免得起伏的亮线探出卡面被圆角切成半根
+        let base = min(max(rect.maxY - rect.height * CGFloat(clamped), rect.minY + amp), rect.maxY)
+        let steps = 24
+        for step in 0...steps {
+            let t = Double(step) / Double(steps)
+            let point = CGPoint(
+                x: rect.minX + rect.width * CGFloat(t),
+                y: base + amp * CGFloat(sin(2 * .pi * (t * 1.35 + phase)))
+            )
+            if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        return path
+    }
+}
+
+/// 水里往上冒的气泡：大小、横向位置、快慢、起跳时机各不相同，冒到水面时胀开变淡碎掉。
+/// 位置是 time 的纯函数（不持有状态），配合 TimelineView 逐帧推进，整片裁在水体里
+struct WaterBubbles: View {
+    var fraction: Double
+    var time: Double
+    var tint: Color
+    var intensity: Double = 0
+    var scale: Double = 1
+    var count = 16
+
+    var body: some View {
+        Canvas { context, size in
+            let water = size.height * CGFloat(min(max(fraction, 0), 1))
+            guard water > 7 else { return }
+            for index in 0..<count {
+                let lane = hashUnit(index, 1)
+                let radius = (1.3 + hashUnit(index, 2) * 2.4) * scale
+                let duration = 1.3 + hashUnit(index, 3) * 1.8
+                let offset = hashUnit(index, 4)
+                let wobble = (0.9 + hashUnit(index, 5) * 2.2) * scale
+                let drift = 0.5 + hashUnit(index, 6) * 1.4
+                let travel = (time / duration + offset).truncatingRemainder(dividingBy: 1)
+                let center = CGPoint(
+                    x: size.width * lane + CGFloat(sin(time * drift + offset * 6)) * wobble,
+                    y: size.height - CGFloat(travel) * water
+                )
+                var radiusNow = radius
+                var alpha = (0.22 + 0.34 * intensity) * min(1, travel / 0.1)
+                if travel > 0.86 {
+                    // 最后一段算它在水面破碎：胀开的同时迅速变淡
+                    let burst = (travel - 0.86) / 0.14
+                    radiusNow = radius * (1 + 1.9 * burst)
+                    alpha *= 1 - 0.55 * burst
+                }
+                let rect = CGRect(
+                    x: center.x - radiusNow, y: center.y - radiusNow,
+                    width: radiusNow * 2, height: radiusNow * 2
+                )
+                let bubble = Path(ellipseIn: rect)
+                context.fill(bubble, with: .color(tint.opacity(alpha)))
+                context.stroke(
+                    bubble,
+                    with: .color(tint.opacity(min(1, alpha * 3.0))),
+                    lineWidth: 0.9 * scale
+                )
+            }
+        }
+        .clipShape(WaterLevel(fraction: fraction, phase: time.truncatingRemainder(dividingBy: 2.4) / 2.4))
+        .allowsHitTesting(false)
+    }
+}
+
+/// 稳定伪随机：同一个 index 永远给同一个 0~1，气泡参数不用存状态也不会每帧重排
+private func hashUnit(_ index: Int, _ salt: Int) -> Double {
+    let value = sin(Double(index * 37 + salt * 977) * 12.9898) * 43758.5453
+    return value - floor(value)
+}
+
 struct Sparkline: View {
     var values: [Double]
     var tint: Color = Color(red: 0.30, green: 0.80, blue: 0.55)

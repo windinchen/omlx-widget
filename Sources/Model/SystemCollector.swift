@@ -74,6 +74,8 @@ struct SystemSnapshot {
     var ramUsage: Int64?
     var ramTotal: Int64?
     var macmonReady = false
+    /// 这一帧数据是本地采的还是 SSH 采的，面板要标出来
+    var source: SystemSource = .ssh
     var error: String?
 
     var gpuFraction: Double { min(1, max(0, (gpuDevice ?? 0) / 100)) }
@@ -109,6 +111,87 @@ private extension Double {
     var nonNegative: Double? { self < 0 ? nil : self }
 }
 
+/// 系统指标从哪儿采的：采集目标就是这台机器时直接本地跑命令，否则走 SSH
+enum SystemSource: String {
+    case local
+    case ssh
+
+    var isLocal: Bool { self == .local }
+}
+
+/// 判断一个采集目标是不是"这台机器自己"：loopback、本机主机名、以及本机任一网卡地址。
+/// 小工具跑在 oMLX 那台主机上时不必开远程登录、也不用给自己配免密
+enum LocalHost {
+    /// user@host:port / http://host:port / [IPv6]:port → 纯主机名（小写）
+    static func normalize(_ target: String) -> String {
+        var host = target.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let scheme = host.range(of: "://") { host = String(host[scheme.upperBound...]) }
+        if let slash = host.firstIndex(of: "/") { host = String(host[host.startIndex..<slash]) }
+        if let at = host.lastIndex(of: "@") { host = String(host[host.index(after: at)...]) }
+        if host.hasPrefix("[") {
+            if let close = host.firstIndex(of: "]") {
+                host = String(host[host.index(after: host.startIndex)..<close])
+            }
+        } else if host.filter({ $0 == ":" }).count == 1, let colon = host.lastIndex(of: ":") {
+            host = String(host[host.startIndex..<colon])
+        }
+        return host
+    }
+
+    static func isLocal(_ target: String) -> Bool {
+        let host = normalize(target)
+        guard !host.isEmpty else { return false }
+        return identities.contains(host)
+    }
+
+    private static var identities: Set<String> {
+        var set: Set<String> = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "ip6-localhost", "ip6-loopback"]
+        var nameBuffer = [CChar](repeating: 0, count: 256)
+        if gethostname(&nameBuffer, nameBuffer.count) == 0 {
+            let host = String(cString: nameBuffer).lowercased()
+            if !host.isEmpty {
+                set.insert(host)
+                if let dot = host.firstIndex(of: ".") { set.insert(String(host[..<dot])) }
+                if host.hasSuffix(".local") { set.insert(String(host.dropLast(6))) }
+            }
+        }
+        set.formUnion(interfaceAddresses())
+        return set
+    }
+
+    private static func interfaceAddresses() -> Set<String> {
+        var first: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&first) == 0 else { return [] }
+        defer { freeifaddrs(first) }
+        var addresses: Set<String> = []
+        var cursor = first
+        while let entry = cursor {
+            let next = entry.pointee.ifa_next
+            if let address = entry.pointee.ifa_addr {
+                let raw = UnsafeRawPointer(address)
+                var text = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                let printed: UnsafePointer<CChar>?
+                if address.pointee.sa_family == UInt8(AF_INET) {
+                    var storage = raw.assumingMemoryBound(to: sockaddr_in.self).pointee
+                    printed = inet_ntop(AF_INET, &storage.sin_addr, &text, socklen_t(text.count))
+                } else if address.pointee.sa_family == UInt8(AF_INET6) {
+                    var storage = raw.assumingMemoryBound(to: sockaddr_in6.self).pointee
+                    printed = inet_ntop(AF_INET6, &storage.sin6_addr, &text, socklen_t(text.count))
+                } else {
+                    printed = nil
+                }
+                if let printed {
+                    var name = String(cString: printed)
+                    if let percent = name.firstIndex(of: "%") { name = String(name[..<percent]) }
+                    if !name.isEmpty { addresses.insert(name.lowercased()) }
+                }
+            }
+            cursor = next
+        }
+        return addresses
+    }
+}
+
 /// 通过 SSH 在远端跑几条零权限命令采集 GPU / CPU / 温度。
 /// macOS 26 上 AppleSMC 用户客户端对非 root 关闭了读取，数字温度依赖 macmon（sudoless）。
 final class SystemCollector {
@@ -130,17 +213,47 @@ final class SystemCollector {
     """
 
     /// fast = true 时跳过 iostat（macmon 已经给了 CPU 占用），一次采集约 2 秒。
-    func sample(target: String, fast: Bool = false, timeout: TimeInterval = 9) async -> SystemSnapshot {
+    /// 采集目标就是这台机器（loopback / 本机主机名 / 本机网卡地址）时直接在本地执行
+    /// 同一套命令；SSH 目标留空时按 oMLX 服务器地址判断，同样是自己就本地采
+    func sample(
+        target: String,
+        serverHost: String = "",
+        mode: SystemSourceChoice = .auto,
+        fast: Bool = false,
+        timeout: TimeInterval = 9
+    ) async -> SystemSnapshot {
         let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            var snapshot = SystemSnapshot()
-            snapshot.error = "未配置 SSH 地址"
-            return snapshot
+        let source: SystemSource
+        switch mode {
+        case .local:
+            source = .local
+        case .remote:
+            guard !trimmed.isEmpty else {
+                var snapshot = SystemSnapshot()
+                snapshot.error = "未配置 SSH 地址"
+                return snapshot
+            }
+            source = .ssh
+        case .auto:
+            if LocalHost.isLocal(trimmed) {
+                source = .local
+            } else if trimmed.isEmpty {
+                guard LocalHost.isLocal(serverHost) else {
+                    var snapshot = SystemSnapshot()
+                    snapshot.error = "未配置 SSH 地址"
+                    return snapshot
+                }
+                source = .local
+            } else {
+                source = .ssh
+            }
         }
         let script = fast ? SystemCollector.fastScript : SystemCollector.remoteScript
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
-                let snapshot = SystemCollector.run(target: trimmed, script: script, timeout: timeout)
+                let snapshot = source.isLocal
+                    ? SystemCollector.runLocal(script: script, timeout: min(timeout, 6))
+                    : SystemCollector.run(target: trimmed, script: script, timeout: timeout)
                 continuation.resume(returning: snapshot)
             }
         }
@@ -156,10 +269,7 @@ final class SystemCollector {
     """
 
     private static func run(target: String, script: String, timeout: TimeInterval) -> SystemSnapshot {
-        let path = NSTemporaryDirectory() + "omlx-sys-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString).txt"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = [
+        var arguments = [
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=5",
             "-o", "ControlMaster=auto",
@@ -167,13 +277,48 @@ final class SystemCollector {
             "-o", "ControlPersist=300",
             "-o", "ServerAliveInterval=5",
             "-o", "LogLevel=ERROR",
-            target,
-            script,
         ]
+        arguments.append(target)
+        arguments.append(script)
+        return execute(
+            executable: "/usr/bin/ssh",
+            arguments: arguments,
+            timeout: timeout,
+            source: .ssh,
+            failureHint: "远端未返回可用指标"
+        )
+    }
+
+    /// 目标就是本机时走这里：同一套命令本地执行，不碰 SSH 也不要求远程登录
+    private static func runLocal(script: String, timeout: TimeInterval) -> SystemSnapshot {
+        execute(
+            executable: "/bin/sh",
+            arguments: ["-c", script],
+            timeout: timeout,
+            source: .local,
+            failureHint: "本机没返回可用指标（GPU 占用靠 ioreg，数字温度要 macmon）"
+        )
+    }
+
+    private static func execute(
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval,
+        source: SystemSource,
+        failureHint: String
+    ) -> SystemSnapshot {
+        let path = NSTemporaryDirectory() + "omlx-sys-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString).txt"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        process.environment = environment
 
         FileManager.default.createFile(atPath: path, contents: nil)
         guard let handle = FileHandle(forWritingAtPath: path) else {
             var snapshot = SystemSnapshot()
+            snapshot.source = source
             snapshot.error = "无法写入临时文件"
             return snapshot
         }
@@ -190,6 +335,7 @@ final class SystemCollector {
         }
 
         var snapshot = SystemSnapshot()
+        snapshot.source = source
         do {
             try process.run()
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
@@ -199,15 +345,16 @@ final class SystemCollector {
             let data = (try? Data(contentsOf: URL(fileURLWithPath: path))) ?? Data()
             let text = String(data: data, encoding: .utf8) ?? ""
             snapshot = parse(text)
+            snapshot.source = source
             if !snapshot.hasAnyValue {
-                if process.terminationStatus == 255 {
+                if source == .ssh && process.terminationStatus == 255 {
                     snapshot.error = "SSH 连接失败（检查免密登录与地址）"
                 } else {
-                    snapshot.error = "远端未返回可用指标"
+                    snapshot.error = failureHint
                 }
             }
         } catch {
-            snapshot.error = "无法启动 ssh：\(error.localizedDescription)"
+            snapshot.error = "无法启动 \(URL(fileURLWithPath: executable).lastPathComponent)：\(error.localizedDescription)"
         }
         try? FileManager.default.removeItem(atPath: path)
         return snapshot

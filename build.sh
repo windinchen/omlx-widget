@@ -9,7 +9,7 @@ BUILD_DIR=".build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 BIN_NAME="omlx-widget"
 BUNDLE_ID="local.windinchen.omlx-widget"
-VERSION="1.8"
+VERSION="1.9"
 
 MODE="debug"
 RUN_AFTER=0
@@ -153,6 +153,9 @@ fi
 
 if [ "$RUN_AFTER" = "1" ]; then
   echo "==> 启动"
+  # 已经在跑的话 open 不会换二进制，先结束旧实例，保证看到的是这次刚构建的版本
+  pkill -x "$BIN_NAME" 2>/dev/null || true
+  sleep 0.6
   open "$APP_DIR"
 fi
 

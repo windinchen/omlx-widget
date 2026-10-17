@@ -86,7 +86,7 @@ struct FloatingCardView: View {
         }
     }
 
-    /// 两种样式共用的卡片外壳：底色、辉光、描边和预填充漫过只画一份
+    /// 两种样式共用的卡片外壳：底色、辉光、描边和预填充涨水只画一份
     @ViewBuilder
     private func cardChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
@@ -95,7 +95,7 @@ struct FloatingCardView: View {
             .shadow(color: inkGlow, radius: 1.6 * fontScale * CGFloat(level))
             .shadow(color: inkGlow, radius: 5.0 * fontScale * CGFloat(level))
             .background {
-                ZStack(alignment: .leading) {
+                ZStack(alignment: .bottom) {
                     RoundedRectangle(cornerRadius: 14 * fontScale, style: .continuous)
                         .fill(.regularMaterial)
                         .opacity(prefs.cardOpacity)
@@ -397,15 +397,46 @@ struct FloatingCardView: View {
         return sorted[1].fraction - sorted[0].fraction < 0.04 ? Array(sorted[1...]) : sorted
     }
 
-    /// 半透明蓝从左往右漫过整张卡片：卡片本身就是预填充进度条（压在文字下方，保证可读）
+    /// 预填充时整张卡片从底部往上灌水：水面高度就是进度，卡片本身就是预填充进度条。
+    /// 水面是一条缓慢起伏的亮蓝线，水色自水面向下渐淡，整片压在文字下方保证可读；
+    /// 拿不到进度（oMLX 没报 progress）时退回整卡呼吸
     @ViewBuilder
     private var prefillFill: some View {
         if state.isPrefilling {
-            GeometryReader { proxy in
-                if let fraction = state.prefillFraction {
-                    let width = max(3, proxy.size.width * min(max(fraction, 0), 1))
-                    prefillBand(width: width)
-                        .animation(.easeOut(duration: 0.45), value: width)
+            ZStack(alignment: .bottom) {
+                if let reported = state.prefillFraction {
+                    TimelineView(.periodic(from: .now, by: 0.05)) { context in
+                        let water = min(max(reported, 0.02), 1)
+                        let phase = context.date.timeIntervalSinceReferenceDate
+                            .truncatingRemainder(dividingBy: 2.4) / 2.4
+                        ZStack {
+                            WaterLevel(fraction: water, phase: phase)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            prefillTint.opacity(0.30 + 0.18 * level),
+                                            prefillTint.opacity(0.08 + 0.05 * level)
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                            WaterBubbles(
+                                fraction: water,
+                                time: context.date.timeIntervalSinceReferenceDate,
+                                tint: prefillTint,
+                                intensity: level,
+                                scale: fontScale
+                            )
+                            WaterLevel(fraction: water, phase: phase)
+                                .stroke(
+                                    prefillTint.opacity(min(1, 0.78 + 0.20 * level)),
+                                    style: StrokeStyle(lineWidth: 1.6, lineCap: .round)
+                                )
+                        }
+                        .shadow(color: prefillTint.opacity(0.45 * level), radius: 2.5)
+                        .animation(.easeOut(duration: 0.45), value: water)
+                    }
                 } else {
                     TimelineView(.periodic(from: .now, by: 0.05)) { context in
                         let phase = context.date.timeIntervalSinceReferenceDate
@@ -417,26 +448,6 @@ struct FloatingCardView: View {
             }
             .allowsHitTesting(false)
         }
-    }
-
-    private func prefillBand(width: CGFloat) -> some View {
-        ZStack(alignment: .trailing) {
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            prefillTint.opacity(0.10 + 0.06 * level),
-                            prefillTint.opacity(0.32 + 0.18 * level)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-            Rectangle()
-                .fill(prefillTint.opacity(min(1, 0.85 + 0.15 * level)))
-                .frame(width: 2)
-        }
-        .frame(width: width)
     }
 
     /// 柱状只列还在吐字的任务，颜色跟着请求走

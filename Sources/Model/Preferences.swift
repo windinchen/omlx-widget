@@ -71,6 +71,32 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// GPU / CPU / 温度从哪儿采：远程走 SSH，本机直接在本地跑同一套命令，
+/// 自动则按采集目标是不是这台机器自己来定
+enum SystemSourceChoice: String, CaseIterable, Identifiable, Codable {
+    case auto
+    case remote
+    case local
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .auto: return "自动"
+        case .remote: return "远程 SSH"
+        case .local: return "本机"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .auto: return "采集目标是本机（localhost、机器名或本机任一 IP）就走本机采集，否则走 SSH"
+        case .remote: return "始终通过 SSH 在远端采集，需要免密登录"
+        case .local: return "始终在这台机器上采集，不用开远程登录"
+        }
+    }
+}
+
 /// 浮窗怎么排：多任务速度区画叠在一起的曲线还是每任务一行横向柱状，以及整张卡片的版式
 enum CardStyle: String, CaseIterable, Identifiable, Codable {
     case curves
@@ -111,6 +137,7 @@ final class Preferences: ObservableObject {
     @Published var showHeatmap: Bool { didSet { store.set(showHeatmap, forKey: Key.showHeatmap.rawValue) } }
     @Published var systemMetricsEnabled: Bool { didSet { store.set(systemMetricsEnabled, forKey: Key.systemMetrics.rawValue) } }
     @Published var sshTarget: String { didSet { store.set(sshTarget, forKey: Key.sshTarget.rawValue) } }
+    @Published var systemSourceMode: SystemSourceChoice { didSet { store.set(systemSourceMode.rawValue, forKey: Key.systemSource.rawValue) } }
     @Published var cardOpacity: Double { didSet { store.set(cardOpacity, forKey: Key.cardOpacity.rawValue) } }
     @Published var cardIntensity: Double { didSet { store.set(cardIntensity, forKey: Key.cardIntensity.rawValue) } }
     @Published var cardFontScale: Double { didSet { store.set(cardFontScale, forKey: Key.cardFontScale.rawValue) } }
@@ -128,6 +155,7 @@ final class Preferences: ObservableObject {
         case showHeatmap = "omlx.showHeatmap"
         case systemMetrics = "omlx.systemMetrics"
         case sshTarget = "omlx.sshTarget"
+        case systemSource = "omlx.systemSource"
         case cardOpacity = "omlx.cardOpacity"
         case cardIntensity = "omlx.cardIntensity"
         case cardFontScale = "omlx.cardFontScale"
@@ -154,6 +182,7 @@ final class Preferences: ObservableObject {
         let storedMode = UserDefaults.standard.string(forKey: Key.menuBarMode.rawValue).flatMap(MenuBarMode.init(rawValue:))
         let storedAppearance = UserDefaults.standard.string(forKey: Key.appearanceMode.rawValue).flatMap(AppearanceMode.init(rawValue:))
         let storedCardStyle = UserDefaults.standard.string(forKey: Key.cardStyle.rawValue).flatMap(CardStyle.init(rawValue:))
+        let storedSystemSource = UserDefaults.standard.string(forKey: Key.systemSource.rawValue).flatMap(SystemSourceChoice.init(rawValue:))
         let storedPoll = UserDefaults.standard.double(forKey: Key.pollSeconds.rawValue)
 
         self.servers = resolvedServers
@@ -166,6 +195,7 @@ final class Preferences: ObservableObject {
         self.showHeatmap = UserDefaults.standard.object(forKey: Key.showHeatmap.rawValue) as? Bool ?? true
         self.systemMetricsEnabled = UserDefaults.standard.object(forKey: Key.systemMetrics.rawValue) as? Bool ?? true
         self.sshTarget = UserDefaults.standard.string(forKey: Key.sshTarget.rawValue) ?? Preferences.defaultSSHTarget
+        self.systemSourceMode = storedSystemSource ?? .auto
         let storedOpacity = UserDefaults.standard.double(forKey: Key.cardOpacity.rawValue)
         self.cardOpacity = min(1.0, max(0.3, storedOpacity > 0 ? storedOpacity : 1.0))
         let storedIntensity = UserDefaults.standard.object(forKey: Key.cardIntensity.rawValue) as? Double

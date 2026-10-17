@@ -268,6 +268,8 @@ final class WidgetState: ObservableObject {
         defer { systemCollecting = false }
         let snapshot = await SystemCollector.shared.sample(
             target: prefs.sshTarget,
+            serverHost: prefs.activeServer.displayHost,
+            mode: prefs.systemSourceMode,
             fast: system?.macmonReady == true
         )
         system = snapshot

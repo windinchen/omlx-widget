@@ -122,18 +122,31 @@ struct SettingsView: View {
 
             Section("GPU 与温度") {
                 Toggle("采集 GPU 利用率与温度", isOn: $prefs.systemMetricsEnabled)
+                Picker("采集来源", selection: $prefs.systemSourceMode) {
+                    ForEach(SystemSourceChoice.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(!prefs.systemMetricsEnabled)
                 TextField("SSH 目标（user@host）", text: $prefs.sshTarget)
                     .font(.system(size: 11).monospacedDigit())
-                    .disabled(!prefs.systemMetricsEnabled)
+                    .disabled(!prefs.systemMetricsEnabled || prefs.systemSourceMode == .local)
                 Toggle("菜单栏改成显示 GPU 与温度", isOn: menuBarGPUBinding)
                     .disabled(!prefs.systemMetricsEnabled)
-                Text("小工具通过 ssh 在 Studio 上跑 ioreg / iostat / pmset（需要先配好免密登录）。温度和风扇读数来自 macmon：brew install macmon，没装也能看 GPU 占用与降频状态。")
+                Text(prefs.systemSourceMode.hint)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text("两种来源跑的是同一套命令：ioreg / iostat / pmset，远程那一路走 ssh（需要先配好免密登录）。温度和风扇读数来自 macmon：brew install macmon，没装也能看 GPU 占用与降频状态。")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                 if let snapshot = state.system {
                     HStack {
                         Text("最近一次采集")
                         Spacer()
+                        Text(snapshot.source.isLocal ? "本机" : "SSH")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
                         Text(snapshot.hasAnyValue
                              ? "\(Fmt.clock(snapshot.date)) · \(snapshot.macmonReady ? "含温度" : "无温度源")"
                              : (snapshot.error ?? "无数据"))

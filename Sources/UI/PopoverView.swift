@@ -315,13 +315,13 @@ struct PopoverView: View {
                             .foregroundStyle(.tertiary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text("SSH \(prefs.sshTarget) · 采集于 \(Fmt.clock(snapshot.date))")
+                    Text("\(snapshot.source.isLocal ? "本机采集" : "SSH \(prefs.sshTarget)") · 采集于 \(Fmt.clock(snapshot.date))")
                         .font(.system(size: 9).monospacedDigit())
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 } else {
                     Text(prefs.sshTarget.trimmingCharacters(in: .whitespaces).isEmpty
-                         ? "没填 SSH 地址，采不到 GPU 与温度"
+                         ? "没填 SSH 地址：小工具跑在 oMLX 那台机器上时会直接本机采集，否则请填 SSH 目标"
                          : "正在通过 SSH 采集 \(prefs.sshTarget)…")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
