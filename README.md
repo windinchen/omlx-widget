@@ -7,14 +7,14 @@
 
 **零第三方依赖**，只需要 Xcode Command Line Tools。约 3,500 行 Swift，纯 AppKit + SwiftUI。
 
-```
-菜单栏：  ● 87.4 t/s
-浮窗：    ┌────────────────────┐
-          │ 87.4 t/s        ✕  │  ← 可拖动、可调透明度
-          │ ▁▂▄▆█▇▅▃▂▁         │
-          │ 内存 42.1 / 128 GB │
-          └────────────────────┘
-```
+<p align="center">
+  <img src="docs/screenshots/panel.png" width="300" alt="详情面板：实时速度、统一内存、GPU 与温度、今日用量">
+  <img src="docs/screenshots/floating.png" width="420" alt="桌面浮窗：半透明卡片悬浮在其他窗口之上">
+</p>
+
+<p align="center">
+  <sub>左：详情面板 · 右：桌面浮窗 —— macOS 菜单栏原生界面</sub>
+</p>
 
 ---
 
