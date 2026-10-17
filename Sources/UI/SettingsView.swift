@@ -64,6 +64,12 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                Picker("浮窗样式", selection: $prefs.cardStyle) {
+                    ForEach(CardStyle.allCases) { style in
+                        Text(style.label).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
                 Picker("菜单栏内容", selection: $prefs.menuBarMode) {
                     ForEach(MenuBarMode.allCases) { mode in
                         Text(mode.label).tag(mode)
@@ -109,7 +115,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 38, alignment: .trailing)
                 }
-                Text("亮度档位同时提高文字对比度、进度条与速度曲线的亮度和饱和度，白天模式改成往深色压；字号改动会等比放大整张卡片。")
+                Text("亮度档位同时提高文字对比度、进度条与速度曲线的亮度和饱和度，白天模式改成往深色压；字号改动会等比放大整张卡片。浮窗多任务样式只影响桌面小卡片：速度曲线是多条同色曲线加图例，横向柱状是每个任务一行按快慢排序的柱子；详情面板始终画曲线。")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }

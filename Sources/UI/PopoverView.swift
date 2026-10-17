@@ -230,10 +230,10 @@ struct PopoverView: View {
                 HStack {
                     SectionLabel(title: "统一内存", systemImage: "memorychip")
                     Spacer()
-                    if let level = state.pressure?.pressureLevel {
-                        Text(pressureLabel(level))
+                    if state.memoryMax != nil {
+                        Text(memoryBand.label)
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Palette.pressure(level))
+                            .foregroundStyle(memoryBand.tint)
                     }
                     Text(Fmt.percent(state.memoryMax == nil ? nil : Double(state.memoryUsed ?? 0) / Double(state.memoryMax!)))
                         .font(.system(size: 11, weight: .semibold).monospacedDigit())
@@ -263,12 +263,11 @@ struct PopoverView: View {
         return markers
     }
 
-    private func pressureLabel(_ level: String) -> String {
-        switch level {
-        case "hard": return "内存吃紧"
-        case "soft", "warn", "warning": return "接近上限"
-        default: return "内存充裕"
-        }
+    /// 与浮窗同一套四档判断，oMLX 报出硬压力时直接把档位顶到吃紧
+    private var memoryBand: MemoryBand {
+        var band = MemoryBand(fraction: state.memoryFraction)
+        if state.pressure?.pressureLevel == "hard" { band = .critical }
+        return band
     }
 
     private var systemCard: some View {
@@ -348,7 +347,7 @@ struct PopoverView: View {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(snapshot.gpuDevice.map { String(format: "%.0f", $0) } ?? "—")
                     .font(.system(size: 22, weight: .bold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(Palette.load(snapshot.gpuFraction))
+                    .foregroundStyle(Palette.duty(snapshot.gpuFraction))
                 Text("% GPU 占用")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -359,7 +358,7 @@ struct PopoverView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            GaugeBar(fraction: snapshot.gpuFraction, height: 6)
+            GaugeBar(fraction: snapshot.gpuFraction, tint: Palette.duty(snapshot.gpuFraction), height: 6)
         }
     }
 

@@ -71,6 +71,31 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// 浮窗怎么排：多任务速度区画叠在一起的曲线还是每任务一行横向柱状，以及整张卡片的版式
+enum CardStyle: String, CaseIterable, Identifiable, Codable {
+    case curves
+    case bars
+    case gauge
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .curves: return "速度曲线"
+        case .bars: return "横向柱状"
+        case .gauge: return "竖向仪表"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .curves: return "waveform.path.ecg"
+        case .bars: return "chart.bar.horizontal"
+        case .gauge: return "gauge.with.dots.needle.bottom.50percent"
+        }
+    }
+}
+
 final class Preferences: ObservableObject {
     static let shared = Preferences()
 
@@ -90,6 +115,7 @@ final class Preferences: ObservableObject {
     @Published var cardIntensity: Double { didSet { store.set(cardIntensity, forKey: Key.cardIntensity.rawValue) } }
     @Published var cardFontScale: Double { didSet { store.set(cardFontScale, forKey: Key.cardFontScale.rawValue) } }
     @Published var appearanceMode: AppearanceMode { didSet { store.set(appearanceMode.rawValue, forKey: Key.appearanceMode.rawValue) } }
+    @Published var cardStyle: CardStyle { didSet { store.set(cardStyle.rawValue, forKey: Key.cardStyle.rawValue) } }
 
     private enum Key: String {
         case servers = "omlx.servers"
@@ -106,6 +132,7 @@ final class Preferences: ObservableObject {
         case cardIntensity = "omlx.cardIntensity"
         case cardFontScale = "omlx.cardFontScale"
         case appearanceMode = "omlx.appearanceMode"
+        case cardStyle = "omlx.cardStyle"
         case floatingFrame = "omlx.floatingFrame"
     }
 
@@ -126,6 +153,7 @@ final class Preferences: ObservableObject {
 
         let storedMode = UserDefaults.standard.string(forKey: Key.menuBarMode.rawValue).flatMap(MenuBarMode.init(rawValue:))
         let storedAppearance = UserDefaults.standard.string(forKey: Key.appearanceMode.rawValue).flatMap(AppearanceMode.init(rawValue:))
+        let storedCardStyle = UserDefaults.standard.string(forKey: Key.cardStyle.rawValue).flatMap(CardStyle.init(rawValue:))
         let storedPoll = UserDefaults.standard.double(forKey: Key.pollSeconds.rawValue)
 
         self.servers = resolvedServers
@@ -145,6 +173,7 @@ final class Preferences: ObservableObject {
         let storedScale = UserDefaults.standard.object(forKey: Key.cardFontScale.rawValue) as? Double
         self.cardFontScale = min(1.4, max(0.8, storedScale ?? 1.0))
         self.appearanceMode = storedAppearance ?? .system
+        self.cardStyle = storedCardStyle ?? .curves
     }
 
     private func persist(_ value: [ServerConfig]) {

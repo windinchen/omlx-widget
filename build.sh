@@ -9,7 +9,7 @@ BUILD_DIR=".build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 BIN_NAME="omlx-widget"
 BUNDLE_ID="local.windinchen.omlx-widget"
-VERSION="1.2"
+VERSION="1.8"
 
 MODE="debug"
 RUN_AFTER=0

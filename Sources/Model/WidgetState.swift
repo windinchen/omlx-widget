@@ -94,6 +94,9 @@ final class WidgetState: ObservableObject {
     private var decayedTps = 0.0
     private var prefillAverage = 0.0
     private var lastBusyAt: Date?
+    /// 采样空窗的保持时长：oMLX 的每请求速度是间歇回报的，这么多久没采到不算停，
+    /// 沿用上一个值让稳定吐字画成一段高原；超过这个空窗才开始降档
+    private static let sampleHoldSeconds = 8.0
     private var lastSlowPoll: Date?
     private var trackedServer: UUID?
     private var cancellables = Set<AnyCancellable>()
@@ -302,11 +305,23 @@ final class WidgetState: ObservableObject {
         counter = Counter(date: now, completion: completion, freshPrompt: freshPrompt)
 
         let reported = inflightNow.reduce(0.0) { $0 + ($1.tokensPerSecond ?? 0) }
-        let instant = max(reported, measuredDecode)
+        // /api/status 的 token 计数是攒着一次性跳的：飞的时候整段不动，请求收尾或
+        // 前后交替那一轮一口气跳出一千多 token，按 1s 一除就是上千 t/s 的假速度，
+        // 纵轴被它顶高、真速度反倒贴底。每请求统计值在的时候一律以它为准，
+        // 增量估算只在没有可信速度时兜底，并且不许超过最近高原的两倍
+        let ceiling = decayedTps > 1 ? decayedTps * 2 : .infinity
+        let fallback = busy && reported <= 0.5 ? min(measuredDecode, ceiling) : 0
+        let instant = max(reported, fallback)
+        let silent = lastBusyAt.map { now.timeIntervalSince($0) } ?? .infinity
         if instant > 0.5 {
             decayedTps = instant
             lastBusyAt = now
-        } else if let lastBusyAt, now.timeIntervalSince(lastBusyAt) < 15 {
+        } else if busy, silent <= Self.sampleHoldSeconds {
+            // 这一轮没采到速度不等于停了：任务还在吐字就沿用上一次的速度，
+            // 曲线停在高原上，不会每漏采一轮就当场腰斩再冒个尖峰
+            decayedTps = max(decayedTps, instant)
+        } else if silent < 15 {
+            // 真跑完了（或空窗拖太久）才降档衰减，留一条收尾的尾巴
             decayedTps *= 0.5
             if decayedTps < 0.4 { decayedTps = 0 }
         } else {

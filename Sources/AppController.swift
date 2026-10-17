@@ -67,9 +67,18 @@ final class FloatingPanelController {
     private var observers: [NSObjectProtocol] = []
     private var cancellables = Set<AnyCancellable>()
 
-    /// 卡片尺寸跟着字号设置走
+    /// 卡片尺寸跟着字号与样式设置走
     private static func cardSize(fontScale: Double) -> NSSize {
-        FloatingCardLayout.size(fontScale: fontScale)
+        FloatingCardLayout.size(fontScale: fontScale, style: Preferences.shared.cardStyle)
+    }
+
+    /// 重新量尺寸时顶边保持不动，卡片只往上长，不会把用户摆好的位置挪走
+    private static func resize(_ panel: FloatingPanel, fontScale: Double) {
+        var frame = panel.frame
+        let topEdge = frame.maxY
+        frame.size = cardSize(fontScale: fontScale)
+        frame.origin.y = topEdge - frame.height
+        panel.setFrame(frame, display: true, animate: true)
     }
 
     func show(topmost: Bool) {
@@ -178,11 +187,18 @@ final class FloatingPanelController {
             .sink { [weak panel] scale in
                 Task { @MainActor in
                     guard let panel else { return }
-                    var frame = panel.frame
-                    let topEdge = frame.maxY
-                    frame.size = FloatingCardLayout.size(fontScale: scale)
-                    frame.origin.y = topEdge - frame.height
-                    panel.setFrame(frame, display: true, animate: true)
+                    Self.resize(panel, fontScale: scale)
+                }
+            }
+            .store(in: &cancellables)
+
+        // 换样式时卡片高度会变（竖向仪表更高），同样顶边不动重新量一次
+        Preferences.shared.$cardStyle
+            .removeDuplicates()
+            .sink { [weak panel] _ in
+                Task { @MainActor in
+                    guard let panel else { return }
+                    Self.resize(panel, fontScale: Preferences.shared.cardFontScale)
                 }
             }
             .store(in: &cancellables)
@@ -336,9 +352,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
 
         let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
+        // 状态栏文字恒定白色，跟系统菜单项一致，不受 App 日夜切换和浅色 labelColor 影响
+        let ink: NSColor = state.kind == .offline ? NSColor.white.withAlphaComponent(0.55) : .white
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: state.kind == .offline ? NSColor.secondaryLabelColor : NSColor.labelColor,
+            .foregroundColor: ink,
         ]
         button.attributedTitle = NSAttributedString(string: state.menuBarTitle, attributes: attributes)
 

@@ -22,18 +22,55 @@ enum Palette {
         }
     }
 
-    static func load(_ fraction: Double) -> Color {
-        if fraction >= 0.95 { return Color(red: 0.90, green: 0.34, blue: 0.32) }
-        if fraction >= 0.85 { return Color(red: 0.98, green: 0.72, blue: 0.25) }
-        return Color(red: 0.36, green: 0.68, blue: 0.96)
+    /// 连续色带：数值在色标之间插值，占用 / 温度一涨颜色就跟着往暖色走，
+    /// 不用等跨过某个阈值才整块跳色（三档写法在 73% 这种常态位上永远是一个颜色）
+    private static func heat(_ value: Double, stops: [(at: Double, rgb: (Double, Double, Double))]) -> Color {
+        guard let head = stops.first, let tail = stops.last, stops.count > 1 else { return Color.primary }
+        let clamped = min(max(value, head.at), tail.at)
+        var upper = stops.count - 1
+        while upper > 1, clamped <= stops[upper - 1].at { upper -= 1 }
+        let low = stops[upper - 1]
+        let high = stops[upper]
+        let ratio = min(max((clamped - low.at) / max(1e-6, high.at - low.at), 0), 1)
+        return Color(
+            red: low.rgb.0 + (high.rgb.0 - low.rgb.0) * ratio,
+            green: low.rgb.1 + (high.rgb.1 - low.rgb.1) * ratio,
+            blue: low.rgb.2 + (high.rgb.2 - low.rgb.2) * ratio
+        )
     }
+
+    /// 内存取色入口：交给 MemoryBand 四档判定，卡片 / 面板 / 竖表永远同一个颜色
+    static func load(_ fraction: Double) -> Color {
+        MemoryBand(fraction: fraction).tint
+    }
+
+    /// GPU 占用色标（负荷语义，与内存余量相反）：闲时蓝，活一干起来就走青→绿，
+    /// 八成以上黄，满载橙红。这样"在不在跑活"扫一眼表身颜色就知道
+    private static let dutyStops: [(at: Double, rgb: (Double, Double, Double))] = [
+        (0.0, (0.36, 0.68, 0.96)),
+        (0.25, (0.27, 0.79, 0.78)),
+        (0.55, (0.30, 0.80, 0.55)),
+        (0.80, (0.98, 0.78, 0.30)),
+        (1.0, (0.98, 0.52, 0.28))
+    ]
+
+    static func duty(_ fraction: Double) -> Color {
+        heat(fraction, stops: dutyStops)
+    }
+
+    /// 温度色标（摄氏度）：40° 蓝 → 60° 绿 → 74° 黄 → 84° 橙 → 94° 红，
+    /// 起点压到 40°，机器从 53° 爬到 70° 这一路就看得出来在变热
+    private static let temperatureStops: [(at: Double, rgb: (Double, Double, Double))] = [
+        (40.0, (0.36, 0.68, 0.96)),
+        (60.0, (0.30, 0.80, 0.55)),
+        (74.0, (0.98, 0.78, 0.30)),
+        (84.0, (0.98, 0.60, 0.28)),
+        (94.0, (0.90, 0.34, 0.32))
+    ]
 
     static func temperature(_ celsius: Double?) -> Color {
         guard let celsius else { return Color.primary }
-        if celsius >= 92 { return Color(red: 0.90, green: 0.34, blue: 0.32) }
-        if celsius >= 82 { return Color(red: 0.98, green: 0.60, blue: 0.28) }
-        if celsius >= 72 { return Color(red: 0.98, green: 0.78, blue: 0.30) }
-        return Color(red: 0.36, green: 0.68, blue: 0.96)
+        return heat(celsius, stops: temperatureStops)
     }
 
     /// 多任务速度曲线的配色，按任务首次出现顺序取色
@@ -51,6 +88,46 @@ enum Palette {
     static func task(_ index: Int) -> Color {
         taskPalette[index % taskPalette.count]
     }
+}
+
+/// 内存四档：0–75% 绿（充裕）、76–80% 蓝（正常）、81–90% 黄（偏高）、90% 以上红（吃紧）。
+/// 按卡片上显示出来的整数百分比分档，颜色跟那串数字永远对得上，
+/// 不会出现"写着 88% 却还是绿的"这类误导
+enum MemoryBand {
+    case ample
+    case normal
+    case high
+    case critical
+
+    init(fraction: Double) {
+        switch (min(max(fraction, 0), 1) * 100).rounded() {
+        case ..<76: self = .ample
+        case ..<81: self = .normal
+        case ..<91: self = .high
+        default: self = .critical
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .ample: return Color(red: 0.30, green: 0.80, blue: 0.55)
+        case .normal: return Color(red: 0.36, green: 0.68, blue: 0.96)
+        case .high: return Color(red: 0.98, green: 0.78, blue: 0.30)
+        case .critical: return Color(red: 0.90, green: 0.34, blue: 0.32)
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .ample: return "充裕"
+        case .normal: return "正常"
+        case .high: return "偏高"
+        case .critical: return "吃紧"
+        }
+    }
+
+    /// 只有红档才把整格底色和描边点亮，黄档只染色，免得常态下卡片一直在闪
+    var isAlert: Bool { self == .critical }
 }
 
 /// 白天 / 夜晚：显式选了白天或夜晚就照办，只有"跟随系统"才去看系统设置
@@ -78,9 +155,10 @@ enum Appearance {
         }
     }
 
-    /// 菜单栏由系统着色，别让 App 的日夜选择把状态栏文字染成看不见的颜色
+    /// 状态栏文字恒定白色，所以把状态项按钮钉在深色外观：
+    /// 点开面板时系统画的高亮底色才是深的，白字不会被浅色高亮吞掉
     static var menuBar: NSAppearance {
-        NSAppearance(named: systemIsDark ? .darkAqua : .aqua) ?? NSAppearance(named: .aqua)!
+        NSAppearance(named: .darkAqua) ?? NSAppearance(named: .aqua)!
     }
 }
 
@@ -221,6 +299,60 @@ struct GaugeBar: View {
     }
 }
 
+/// 竖表上的一根警戒刻度：位置 + 该位自己的颜色（软阈值黄、硬阈值红）
+struct MeterMark {
+    var fraction: Double
+    var tint: Color?
+}
+
+/// 竖向仪表：自底向上填充的胶囊竖表，适合内存 / GPU 这类 0~1 的占用指标。
+/// 越满颜色越烫，警戒位用带色的刻度线压在表身上，读高低比看数字更快
+struct VerticalMeter: View {
+    var fraction: Double
+    var tint: Color?
+    var markers: [MeterMark] = []
+    /// 表盘中线，表身空着的时候也有个高低参照；画在填充之下，满表时不会显乱
+    var graduations: [Double] = [0.5]
+    var intensity: Double = 0
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let height = proxy.size.height
+            let clamped = min(max(fraction, 0), 1)
+            let accent = Vivid.apply(tint ?? Palette.load(clamped), level: intensity)
+            ZStack(alignment: .bottom) {
+                Capsule()
+                    .fill(Color.primary.opacity(0.10 + 0.12 * intensity))
+                ForEach(Array(graduations.enumerated()), id: \.offset) { _, grade in
+                    Rectangle()
+                        .fill(Color.primary.opacity(min(1, 0.18 + 0.22 * intensity)))
+                        .frame(width: width, height: 1)
+                        .offset(y: -(height * min(max(grade, 0), 1)) + 0.5)
+                }
+                if clamped > 0 {
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [accent.opacity(0.55 + 0.15 * intensity), accent],
+                                startPoint: .bottom,
+                                endPoint: .top
+                            )
+                        )
+                        .frame(height: max(width, height * clamped))
+                }
+                ForEach(Array(markers.enumerated()), id: \.offset) { _, marker in
+                    Rectangle()
+                        .fill((marker.tint ?? Color.primary).opacity(min(1, 0.55 + 0.35 * intensity)))
+                        .frame(width: width, height: 1)
+                        .offset(y: -(height * min(max(marker.fraction, 0), 1)) + 0.5)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+    }
+}
+
 struct Sparkline: View {
     var values: [Double]
     var tint: Color = Color(red: 0.30, green: 0.80, blue: 0.55)
@@ -350,6 +482,60 @@ struct MultiSparkline: View {
 
     private func height(for value: Double, height total: CGFloat, peak: Double) -> CGFloat {
         total - (total - 2) * CGFloat(min(max(value / peak, 0), 1)) - 1
+    }
+}
+
+/// 多任务时的速度对比：多条曲线叠在一起难分辨，改成每个任务一行多色横向柱状，
+/// 长度按当前最快的任务归一化，数值右对齐成一列，谁在抢算力一眼看得出来
+struct TaskSpeedBars: View {
+    var tasks: [TaskSeries]
+    var scale: CGFloat = 1
+    var intensity: Double = 0
+
+    private var ranked: [TaskSeries] { tasks.sorted { $0.latest > $1.latest } }
+    private var shown: [TaskSeries] { Array(ranked.prefix(3)) }
+    private var overflow: Int { max(0, ranked.count - shown.count) }
+    private var peak: Double { max(ranked.first?.latest ?? 0, 1) }
+
+    /// 卡片要给这块区域留的高度：行高 11 + 行距 3，最多三行
+    static func height(rows: Int, scale: CGFloat) -> CGFloat {
+        let count = min(3, max(1, rows))
+        return (CGFloat(count) * 11 * scale + CGFloat(count - 1) * 3 * scale).rounded()
+    }
+
+    var body: some View {
+        VStack(spacing: 3 * scale) {
+            ForEach(Array(shown.enumerated()), id: \.element.id) { index, task in
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(Vivid.apply(Palette.task(task.colorIndex), level: intensity))
+                        .frame(width: 4 * scale, height: 4 * scale)
+                    GaugeBar(
+                        fraction: task.latest / peak,
+                        tint: Palette.task(task.colorIndex),
+                        height: 5 * scale,
+                        intensity: intensity
+                    )
+                    Text(Fmt.tps(task.latest))
+                        .font(.system(size: 9 * scale, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(Vivid.apply(Palette.task(task.colorIndex), level: intensity))
+                        .frame(width: 30 * scale, alignment: .trailing)
+                    Text(suffix(for: index))
+                        .font(.system(size: 7.5 * scale, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 14 * scale, alignment: .leading)
+                }
+                .frame(height: 11 * scale)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// 单位只在最快那行的数值后出现一次，读起来像列头；没跑满三行时多余任务折成 +N
+    private func suffix(for index: Int) -> String {
+        if index == 0 { return "t/s" }
+        if index == shown.count - 1, overflow > 0 { return "+\(overflow)" }
+        return " "
     }
 }
 
