@@ -8,6 +8,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# 打 tag 时 workflow 要自己建 Release 并上传资产，GITHUB_TOKEN 默认没有写权限
+permissions:
+  contents: write
+
 jobs:
   build:
     name: 编译并打包
@@ -64,6 +68,11 @@ jobs:
         run: |
           set -euo pipefail
           DMG="${{ steps.dmg.outputs.path }}"
+          if [ -f "RELEASE_NOTES.md" ]; then
+            BODY_FLAG=(--notes-file RELEASE_NOTES.md)
+          else
+            BODY_FLAG=(--generate-notes)
+          fi
           gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
-            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" "${BODY_FLAG[@]}"
           gh release upload "${GITHUB_REF_NAME}" "$DMG" SHA256.txt --clobber
