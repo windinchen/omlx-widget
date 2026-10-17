@@ -1,0 +1,22 @@
+# 构建产物
+.build/
+*.app
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# 安装包（走 GitHub Release 发布，不进源码历史）
+*.dmg
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
