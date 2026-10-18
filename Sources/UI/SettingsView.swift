@@ -10,6 +10,7 @@ struct SettingsView: View {
     @ObservedObject var prefs: Preferences
     @ObservedObject var state: WidgetState
     @ObservedObject var model: SettingsModel
+    @ObservedObject var updater: UpdateChecker
 
     init(
         prefs: Preferences = Preferences.shared,
@@ -19,6 +20,7 @@ struct SettingsView: View {
         self.prefs = prefs
         self.state = state
         self.model = model
+        self.updater = UpdateChecker.shared
     }
 
     var body: some View {
@@ -169,6 +171,7 @@ struct SettingsView: View {
                         .lineLimit(1)
                 }
             }
+            updateSection
 
             if let message = model.message {
                 Text(message)
@@ -177,8 +180,59 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 620)
+        .frame(width: 460, height: 660)
         .onAppear { model.launchAtLogin = (SMAppService.mainApp.status == .enabled) }
+    }
+
+    /// 版本与更新：本机版本号、GitHub 上的最新发布版、手动检查与开关
+    /// 单独抽出来是因为 Form 里的东西堆到一起，编译器就算不出类型了
+    @ViewBuilder
+    private var updateSection: some View {
+        HStack {
+            Text("本机版本")
+            Spacer()
+            Text("v\(AppVersion.current.description)")
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        HStack {
+            Text("GitHub 上")
+            Spacer()
+            Text(updateStatus.label)
+                .font(.system(size: 11))
+                .foregroundStyle(updateStatus.tint)
+                .lineLimit(1)
+            Text(updater.lastChecked == nil ? "从未检查" : "查于 \(Fmt.clock(updater.lastChecked))")
+                .font(.system(size: 10).monospacedDigit())
+                .foregroundStyle(.tertiary)
+        }
+        HStack(spacing: 8) {
+            GhostButton(title: updater.checkingLabel, systemImage: "arrow.triangle.2.circlepath") {
+                Task {
+                    await updater.check()
+                    AppController.shared?.showUpdateWindow()
+                }
+            }
+            GhostButton(title: "更新内容", systemImage: "text.page") {
+                AppController.shared?.showUpdateWindow()
+            }
+            GhostButton(title: "发布页", systemImage: "safari") {
+                if let url = updater.releasesURL ?? updater.homeURL {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            if !prefs.dismissedUpdateVersion.isEmpty {
+                GhostButton(title: "别再忽略 \(prefs.dismissedUpdateVersion)", systemImage: "eye") {
+                    updater.resetDismiss()
+                }
+            }
+        }
+        Toggle("启动后自动检查（之后每 6 小时一次）", isOn: $prefs.autoCheckUpdates)
+        TextField("GitHub 仓库（owner/repo 或完整链接）", text: $prefs.githubRepository)
+            .font(.system(size: 11).monospacedDigit())
+        Text("版本号每次发布进 0.01（1.9 之后是 1.10），比对按点分段逐段比数值，不会把 1.10 当成比 1.9 旧。发现新版本时状态栏圆点会长出橙点，面板顶部出现横幅；更新完的第一次启动会弹一次更新内容，说明读自安装包里的 ReleaseNotes.md 与 GitHub 上那条 Release 的正文。")
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
     }
 
     private var menuBarGPUBinding: Binding<Bool> {
@@ -186,6 +240,18 @@ struct SettingsView: View {
             get: { prefs.menuBarMode == .gpu },
             set: { enabled in prefs.menuBarMode = enabled ? .gpu : .full }
         )
+    }
+
+    /// 设置里"GitHub 上"那一行的文案与颜色
+    private var updateStatus: (label: String, tint: Color) {
+        switch updater.status {
+        case .idle: return ("还没查过", Color.secondary)
+        case .checking: return ("正在检查…", Color.accentColor)
+        case .upToDate: return ("已是最新版", Palette.kind(.busy))
+        case .ahead(let release): return ("本机比 \(release.tagName) 更新", Palette.kind(.loading))
+        case .available(let release): return ("有新版本 \(release.tagName)", Palette.kind(.loading))
+        case .failed(let message): return (message, Palette.kind(.offline))
+        }
     }
 
     private func nameBinding(_ id: UUID) -> Binding<String> {

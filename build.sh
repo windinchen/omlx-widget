@@ -9,7 +9,9 @@ BUILD_DIR=".build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 BIN_NAME="omlx-widget"
 BUNDLE_ID="local.windinchen.omlx-widget"
-VERSION="1.9"
+# 版本号每次发布进 0.01（1.9 → 1.10 → 1.11），除非特意安排了别的跨度
+# 改这里就够了：dmg 名字、安装包里的版本、更新弹窗显示的版本都跟着走；./build.sh --bump 会自动加 0.01
+VERSION="1.10"
 
 MODE="debug"
 RUN_AFTER=0
@@ -22,13 +24,32 @@ for arg in "$@"; do
     --run) RUN_AFTER=1 ;;
     --install) INSTALL_AFTER=1 ;;
     --dmg) DMG_AFTER=1; MODE="release" ;;
+    --bump)
+      # 末位 +1：1.9 → 1.10，1.10 → 1.11（版本号按两段数字算，不是字符串拼接）
+      MAJOR="${VERSION%%.*}"
+      MINOR="${VERSION##*.}"
+      if ! [[ "$MINOR" =~ ^[0-9]+$ ]]; then
+        echo "版本号 $VERSION 不是「主.次」两段数字，没法自动加 0.01" >&2
+        exit 1
+      fi
+      NEXT="$MAJOR.$((MINOR + 1))"
+      echo "==> 版本号 $VERSION → $NEXT"
+      # BSD sed 的 -i 要带空后缀参数，脚本里容易被吞掉，直接改写临时文件再覆盖回来（保留可执行位）
+      NEXT_FILE="$(mktemp "${TMPDIR:-/tmp}/omlx-build.XXXXXX")"
+      sed "s|^VERSION=\"$VERSION\"|VERSION=\"$NEXT\"|" "$0" > "$NEXT_FILE"
+      cat "$NEXT_FILE" > "$0"
+      rm "$NEXT_FILE"
+      echo "    已写回 $0"
+      echo "    接着跑：./build.sh --dmg   然后打 tag v$NEXT 交给 CI 发 Release"
+      exit 0 ;;
     -h|--help)
       cat <<USAGE
-用法: ./build.sh [--release] [--run] [--install] [--dmg]
+用法: ./build.sh [--release] [--run] [--install] [--dmg] [--bump]
   --release  优化编译（稍慢）
   --run      构建后立刻启动
   --install  复制到 /Applications 并覆盖同名版本
   --dmg      打成 dmg 安装包放到桌面（隐含 --release）
+  --bump     版本号 +0.01 写回本脚本后退出（发布新包之前先跑这个）
 USAGE
       exit 0 ;;
     *) echo "未知参数: $arg" >&2; exit 1 ;;
@@ -70,6 +91,14 @@ if [ -f Resources/AppIcon.icns ]; then
   cp Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 else
   echo "==> 未找到 Resources/AppIcon.icns，用默认图标"
+fi
+
+# 更新弹窗第一次启动要读的"更新内容"，装完离线也有得看，不必再问 GitHub
+if [ -f RELEASE_NOTES.md ]; then
+  echo "==> 放入更新说明"
+  cp RELEASE_NOTES.md "$APP_DIR/Contents/Resources/ReleaseNotes.md"
+else
+  echo "==> 未找到 RELEASE_NOTES.md，更新弹窗只能显示 GitHub 上的正文"
 fi
 
 SOURCES=()

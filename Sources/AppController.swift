@@ -241,10 +241,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private let state = WidgetState.shared
     private let prefs = Preferences.shared
+    private let updater = UpdateChecker.shared
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private lazy var floatingController = FloatingPanelController()
     private lazy var settingsController = SettingsWindowController()
+    private lazy var updateWindow = UpdateWindowController()
     private var cancellables = Set<AnyCancellable>()
     private var appliedDark: Bool?
 
@@ -274,6 +276,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         bindState()
         state.start()
         syncFloating()
+        updater.start()
+        bindUpdater()
+        presentWhatsNewOnFirstLaunch()
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
@@ -316,6 +321,55 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         refreshStatusItem()
     }
 
+    /// 更新检查的结果只影响两处：状态栏那枚橙点和提示气泡，其余界面自己去读 updater
+    private func bindUpdater() {
+        updater.$status
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshStatusItem() }
+            .store(in: &cancellables)
+        prefs.$dismissedUpdateVersion
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshStatusItem() }
+            .store(in: &cancellables)
+        // 刚把自动检查打开，别等下一个整点，立刻问一次
+        prefs.$autoCheckUpdates
+            .filter { $0 }
+            .receive(on: RunLoop.main)
+            .sink { _ in Task { await UpdateChecker.shared.checkIfDue() } }
+            .store(in: &cancellables)
+    }
+
+    /// 装完 / 更新完的第一次启动弹一次更新内容，记下的版本号一变就只弹这一次
+    private func presentWhatsNewOnFirstLaunch() {
+        let current = AppVersion.current.description
+        let previous = prefs.lastLaunchedVersion
+        guard previous != current else { return }
+        prefs.lastLaunchedVersion = current
+        let presentation: UpdatePresentation = previous.isEmpty ? .firstRun : .upgraded(from: previous)
+        // 等状态栏和浮窗都立起来再弹，别跟启动那一刻抢焦点
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.updateWindow.present(self.updater.report(for: presentation))
+        }
+    }
+
+    /// 有新版本时给状态栏小圆点右上角缀一枚橙点，不展开菜单也看得出"该更新了"
+    private static func withUpdateBadge(_ base: NSImage?) -> NSImage? {
+        guard let base else { return nil }
+        let size = NSSize(width: base.size.width + 4, height: base.size.height + 2.5)
+        let combined = NSImage(size: size, flipped: false) { _ in
+            base.draw(at: .zero, from: NSRect(origin: .zero, size: base.size), operation: .sourceOver, fraction: 1)
+            NSColor.black.withAlphaComponent(0.45).setFill()
+            NSBezierPath(ovalIn: NSRect(x: size.width - 4.6, y: size.height - 4.6, width: 4.6, height: 4.6)).fill()
+            NSColor.systemOrange.setFill()
+            NSBezierPath(ovalIn: NSRect(x: size.width - 4.2, y: size.height - 4.2, width: 3.8, height: 3.8)).fill()
+            return true
+        }
+        combined.isTemplate = false
+        return combined
+    }
+
     /// 切白天 / 夜晚：整 App 外观、状态栏图标、依赖深浅色的调色方向一起更新
     private func applyAppearance() {
         NSApp.appearance = Appearance.override
@@ -346,7 +400,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             let image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: state.kind.label)?
                 .withSymbolConfiguration(configuration)
             image?.isTemplate = false
-            button.image = image
+            button.image = updater.hasUpdateHint ? Self.withUpdateBadge(image) : image
         } else {
             button.image = nil
         }
@@ -367,6 +421,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         } else if let error = state.lastError {
             tooltip += "\n\(error)"
         }
+        if let release = updater.bannerRelease {
+            tooltip += "\n发现新版本 \(release.tagName)（当前 v\(AppVersion.current)）· 右键可下载"
+        }
         button.toolTip = tooltip
     }
 
@@ -382,6 +439,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func showMenu() {
         guard let statusItem else { return }
         let menu = NSMenu()
+        if let release = updater.bannerRelease {
+            let upgrade = NSMenuItem(
+                title: "下载新版本 \(release.tagName)（当前 v\(AppVersion.current)）",
+                action: #selector(menuShowUpdate),
+                keyEquivalent: ""
+            )
+            upgrade.target = self
+            menu.addItem(upgrade)
+            menu.addItem(.separator())
+        }
         menu.addItem(withTitle: "立即刷新", action: #selector(menuRefresh), keyEquivalent: "r").target = self
         menu.addItem(withTitle: "发送测速请求", action: #selector(menuProbe), keyEquivalent: "").target = self
         menu.addItem(.separator())
@@ -400,6 +467,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "打开控制台", action: #selector(menuOpenDashboard), keyEquivalent: "d").target = self
         menu.addItem(withTitle: "设置…", action: #selector(showSettings), keyEquivalent: ",").target = self
+        menu.addItem(withTitle: "检查更新…", action: #selector(menuCheckUpdate), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "退出 oMLX 小工具", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
@@ -440,11 +508,34 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    /// 菜单里的"下载新版本"：直接开弹窗，里面有下载地址和这一版的说明
+    @objc private func menuShowUpdate() {
+        showUpdateWindow()
+    }
+
+    @objc private func menuCheckUpdate() {
+        Task { [weak self] in
+            guard let self else { return }
+            await self.updater.check()
+            self.showUpdateWindow()
+        }
+    }
+
+    func showUpdateWindow() {
+        updateWindow.present(updater.report(for: .checked))
+    }
+
+    func closeUpdateWindow() {
+        updateWindow.close()
+    }
+
     @objc func showSettings() {
         settingsController.present()
     }
 
     func popoverWillShow(_ notification: Notification) {
         Task { await state.refresh() }
+        // 面板打开顺手对一次版本：离上次检查没到间隔就直接用缓存，不会每开一次面板问一次 GitHub
+        Task { await updater.checkIfDue() }
     }
 }

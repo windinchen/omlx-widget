@@ -5,7 +5,7 @@
 实时看到**生成速度、token 用量、统一内存压力、GPU 占用与温度、模型加载状态**——
 不用切窗口，不用开浏览器，扫一眼菜单栏就知道机器现在忙不忙、热不热、快不快。
 
-**零第三方依赖**，只需要 Xcode Command Line Tools。约 3,500 行 Swift，纯 AppKit + SwiftUI。
+**零第三方依赖**，只需要 Xcode Command Line Tools。约 5,300 行 Swift，纯 AppKit + SwiftUI。
 
 <p align="center">
   <img src="docs/screenshots/panel.png" width="300" alt="详情面板：实时速度、统一内存、GPU 与温度、今日用量">
@@ -27,6 +27,7 @@
 - [连接服务器](#连接服务器)
 - [GPU 与温度（远程与本机采集）](#gpu-与温度远程与本机采集)
 - [设置项详解](#设置项详解)
+- [版本管理与自动更新](#版本管理与自动更新)
 - [用到的接口](#用到的接口)
 - [常见问题](#常见问题)
 - [从源码构建](#从源码构建)
@@ -160,6 +161,11 @@
   浮窗、详情面板、设置窗口一起换肤；字色亮度的方向跟着翻——
   深色底往纯白提亮，浅色底往纯黑压深，两种外观都拉开与卡面的对比。
   状态栏图标**不跟着染色**，始终按系统本身的深浅色上色，避免「深字压深底」看不见。
+
+- **版本管理与自动更新**
+  启动后自己去 GitHub 对版本号（之后每 6 小时一次）。发现新版本时菜单栏那枚圆点**长出一枚橙点**，
+  面板顶部出现**下载横幅**；装完新版本**第一次启动会弹一次更新内容**，把这一版改了什么讲清楚。
+  详见 [版本管理与自动更新](#版本管理与自动更新)。
 
 ---
 
@@ -438,6 +444,81 @@ ControlPersist=300
 | 登录后自动启动 | 通过 `SMAppService` 注册登录项 |
 | 当前状态 | 在线时显示服务器名与已加载模型数，离线时显示错误 |
 
+### 版本与更新
+
+| 项 | 说明 |
+|---|---|
+| 本机版本 | 安装包里的 `CFBundleShortVersionString`，来自 `build.sh` 的 `VERSION` |
+| GitHub 上 | 与最新 release 的比对结果，附「查于 HH:mm」，四种结果见对照表 |
+| 检查更新 / 更新内容 / 发布页 | 手动查一次并弹窗 / 直接看这一版说明 / 打开仓库 Releases |
+| 启动后自动检查 | 默认开；关掉之后只有手动检查会碰 GitHub |
+| GitHub 仓库 | 默认 `windinchen/omlx-widget`，填自己的 fork 也行（`owner/repo` 或完整链接都认） |
+| 别再忽略 vX.Y | 只在点过「忽略这一版」之后才出现 |
+
+---
+
+## 版本管理与自动更新
+
+小工具会去 GitHub Releases 对版本号，但**只负责告诉你、并把地址递给你**，不自动替换
+`/Applications` 里的 App——ad-hoc 签名的包自己拖一次覆盖，比让程序在运行中把自己换掉稳妥。
+
+<p align="center">
+  <img src="docs/screenshots/update-banner.png" width="300" alt="面板顶部横幅：小工具新版本 v1.11 可下载，当前 v1.10，右侧是下载 / 更新内容 / 忽略三个按钮">
+  <img src="docs/screenshots/update-window.png" width="320" alt="更新内容窗口：已更新到 v1.10，逐条列出这一版的变化，底部是下载新版本与 GitHub 发布页">
+</p>
+
+### 什么时候查
+
+| 时机 | 行为 |
+|---|---|
+| 启动后 | 立刻查一次；距上次检查不到 6 小时就沿用缓存，不重复问 |
+| 之后每 5 分钟醒一次 | 只有距上次检查超过 **6 小时**才真的发请求 |
+| 打开详情面板 | 顺带查一次，同样受 6 小时间隔约束 |
+| 右键菜单 / 设置里点「检查更新…」 | 无条件查一次，并把结果弹窗摊开 |
+
+走 `api.github.com`（匿名请求，`/releases/latest` 拿不到就退回 `/releases?per_page=10`），
+结果写进偏好 `omlx.lastReleaseData`，重启后面板立刻有得显示、不必等网络。
+匿名额度每小时有限，所以才定成 6 小时一轮。
+
+### 四种结果
+
+| 结果 | 菜单栏 | 面板 | 弹窗 |
+|---|---|---|---|
+| **有新版本** | 圆点右上角缀一枚橙点 | 顶部横幅：下载 / 更新内容 / 忽略这一版 | 「发现新版本 vX.Y」 |
+| **已是最新版** | 不变 | 不变 | 「已经是最新版 vX.Y · 查于 HH:mm」 |
+| **本机比 GitHub 新** | 不变 | 不变 | 说清是开发包或 CI 的 Release 还没建好，不谎报有更新 |
+| **问不到 GitHub** | 不变 | 不变 | 一句原因（断网 / 被限流 / 找不到仓库），别的功能照常用 |
+
+「忽略这一版」只屏蔽那一个小版本号（`omlx.dismissedUpdateVersion`），出了更新的版本照样提示，
+设置里的「别再忽略 vX.Y」可以反悔。
+
+### 更新内容从哪儿来
+
+- **第一次启动判定**：偏好 `omlx.lastLaunchedVersion` 记着上次启动的版本号，和这次不一样就弹一次
+  更新内容，之后同版本不再弹；全新安装弹的是「欢迎使用 vX.Y」
+- 正文**优先读安装包里的 `Contents/Resources/ReleaseNotes.md`**（打包时从仓库根目录拷进去），
+  离线也看得到、不占 GitHub 额度；包里没有才退回 GitHub 上那条 Release 的正文，
+  远端版本更新时改用远端那段
+- 唯一来源仍是仓库根目录的 `RELEASE_NOTES.md`：打包拷进安装包、CI 拿它当 Release 正文，
+  **一处维护、三处一致**
+- 弹窗里的轻量 Markdown 读取器认标题、小标题、列表、编号、表格行、分隔线，发布页专用的 `<img>`
+  标签自动跳过，「安装 / 校验和 / 从源码构建」这些装包用的尾巴章节不进弹窗
+
+### 版本号规则
+
+**每次发布进 0.01**，除非特意安排了别的跨度：`1.9 → 1.10 → 1.11`。
+
+```bash
+./build.sh --bump                    # 版本号 +0.01 写回 build.sh 后退出
+./build.sh --dmg                     # 打安装包
+git tag v1.11 && git push --tags     # 交给 CI 建 Release
+```
+
+- 版本号只在 `build.sh` 的 `VERSION` 一处，dmg 文件名、`Info.plist`、更新提示里的数字都跟着它
+- 比对**按点分段逐段比数值**（`AppVersion`），`1.10` 比 `1.9` 新；按字符串排会排反
+- 想验更新提示不用重打包：`OMLX_WIDGET_VERSION=1.5 open "/Applications/oMLX 小工具.app"`
+  就能让安装包假装自己是旧版本
+
 ---
 
 ## 用到的接口
@@ -533,6 +614,20 @@ ssh you@your-host 'ioreg -rd1 -c IOAccelerator | head'
 
 中间区域可滚动，模型多时向下滚。
 
+### 一直不提示有新版本
+
+- 自动检查默认 6 小时一轮，刚发布新版本时它可能还在用上一轮的缓存：右键菜单点「检查更新…」立刻问一次
+- 「本机比 GitHub 更新」不是 bug——本地 dmg 的版本号确实比 GitHub 上最新的 release 新
+  （CI 还没跑完、或者还没打 tag），这时候提示有更新才是骗人
+- 之前点过「忽略这一版」会让它一直不吭声：设置 → 版本与更新 → 「别再忽略 vX.Y」
+- 问不到 GitHub（断网、被限流、仓库地址填错）只写一句原因，其余功能照常用
+- 仓库地址填错改这里：设置 → 版本与更新 → GitHub 仓库
+
+### 更新内容弹窗是空的
+
+安装包里没有 `Contents/Resources/ReleaseNotes.md`（自己改 `build.sh` 打包时漏拷），
+GitHub 上那条 Release 又没写正文。用仓库自带的 `build.sh` 重新打包即可。
+
 ---
 
 ## 从源码构建
@@ -553,9 +648,11 @@ cd omlx-widget
 ./build.sh --release   # 优化编译
 ./build.sh --install   # 复制到 /Applications
 ./build.sh --dmg       # 打成 dmg 放到桌面（隐含 --release）
+./build.sh --bump      # 版本号 +0.01 写回 build.sh 后退出
 ```
 
-版本号在 `build.sh` 的 `VERSION` 变量里，改了它 dmg 名字跟着变。
+版本号只有 `build.sh` 的 `VERSION` 一处，dmg 名字、`Info.plist`、更新提示里的数字都跟着它走；
+发布规矩见 [版本号规则](#版本号规则)。
 
 ### 打成安装包
 
@@ -596,19 +693,21 @@ release 构建 → 校验产物（可执行、`plutil -lint`、`codesign --stric
 ```
 Sources/
 ├── main.swift                    入口（12 行）
-├── AppController.swift           状态栏项、桌面浮窗、设置窗口（450 行）
+├── AppController.swift           状态栏项、桌面浮窗、设置与更新弹窗（541 行）
 ├── Model/
 │   ├── WidgetState.swift         轮询、实时速度推算、加载/卸载与测速（516 行）
 │   ├── SystemCollector.swift     SSH / 本机采集 GPU/温度/功耗/风扇并解析（498 行）
+│   ├── UpdateChecker.swift       GitHub 版本比对、更新弹窗内容与缓存（450 行）
 │   ├── OmlxClient.swift          HTTP 客户端（106 行）
 │   ├── OmlxAPI.swift             接口数据模型（375 行）
-│   ├── Preferences.swift         服务器列表与偏好持久化（228 行）
+│   ├── Preferences.swift         服务器列表与偏好持久化（260 行）
 │   └── Formatters.swift          数字 / 字节 / 时间格式化（80 行）
 └── UI/
-    ├── PopoverView.swift         详情面板（604 行）
+    ├── PopoverView.swift         详情面板（645 行）
     ├── Parts.swift               共享组件与 Appearance 调色、水位与气泡（698 行）
     ├── FloatingCardView.swift    桌面浮窗卡片（513 行）
-    └── SettingsView.swift        设置页（234 行）
+    ├── UpdateViews.swift         更新弹窗与轻量 Markdown 读取器（300 行）
+    └── SettingsView.swift        设置页（300 行）
 Tools/
 └── make-icon.swift               图标生成脚本
 ```
@@ -623,6 +722,9 @@ Tools/
   实测不透明度 35% 时文字峰值亮度仍有 0.95（旧的「内容一起变透明」写法只有 0.80）；
   全不透明时小字与卡面亮度差 0.43，约为最初版本的 3.6 倍。
 - **多任务曲线颜色跟着请求走**，不是跟着索引走——老任务滑出窗口不会让后面任务变色。
+- **版本号比对自己实现**（`AppVersion`）：按点分段逐段比数值，`1.10 > 1.9`；`Comparable` 缺省时
+  系统会拿字符串比，正好排反。更新弹窗的 Markdown 读取器（`ReleaseNotesParser`)只认文档里用到的那几类排版，
+  行内加粗 / 行内代码 / 链接交给 `AttributedString(markdown:)` 还原，不值得为它引第三方渲染库。
 - **三种浮窗样式共用一个卡片外壳**（`FloatingCardView.cardChrome`）：卡面底色、辉光、描边和
   预填充涨水（含气泡）只有一份，样式只换里面的排版。窗口基准高度按样式取（竖向仪表 185pt，其余 157pt），
   换样式时订阅 `cardStyle` 重新量尺寸，顶边保持不动。

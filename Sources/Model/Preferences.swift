@@ -143,6 +143,10 @@ final class Preferences: ObservableObject {
     @Published var cardFontScale: Double { didSet { store.set(cardFontScale, forKey: Key.cardFontScale.rawValue) } }
     @Published var appearanceMode: AppearanceMode { didSet { store.set(appearanceMode.rawValue, forKey: Key.appearanceMode.rawValue) } }
     @Published var cardStyle: CardStyle { didSet { store.set(cardStyle.rawValue, forKey: Key.cardStyle.rawValue) } }
+    @Published var autoCheckUpdates: Bool { didSet { store.set(autoCheckUpdates, forKey: Key.autoCheckUpdates.rawValue) } }
+    @Published var githubRepository: String { didSet { store.set(githubRepository, forKey: Key.githubRepository.rawValue) } }
+    /// 用户点过"忽略这个版本"的小版本号：只在版本号和 GitHub 上那个完全相同时才屏蔽
+    @Published var dismissedUpdateVersion: String { didSet { store.set(dismissedUpdateVersion, forKey: Key.dismissedUpdateVersion.rawValue) } }
 
     private enum Key: String {
         case servers = "omlx.servers"
@@ -162,10 +166,17 @@ final class Preferences: ObservableObject {
         case appearanceMode = "omlx.appearanceMode"
         case cardStyle = "omlx.cardStyle"
         case floatingFrame = "omlx.floatingFrame"
+        case autoCheckUpdates = "omlx.autoCheckUpdates"
+        case githubRepository = "omlx.githubRepo"
+        case dismissedUpdateVersion = "omlx.dismissedUpdateVersion"
+        case lastUpdateCheck = "omlx.lastUpdateCheck"
+        case lastReleaseData = "omlx.lastReleaseData"
+        case lastLaunchedVersion = "omlx.lastLaunchedVersion"
     }
 
     static let defaultServer = ServerConfig(name: "家里的 Mac Studio", urlString: "http://127.0.0.1:7979")
     static let defaultSSHTarget = "windnchen@172.47.68.21"
+    static let defaultRepository = "windinchen/omlx-widget"
 
     private init() {
         var loaded: [ServerConfig]?
@@ -204,6 +215,9 @@ final class Preferences: ObservableObject {
         self.cardFontScale = min(1.4, max(0.8, storedScale ?? 1.0))
         self.appearanceMode = storedAppearance ?? .system
         self.cardStyle = storedCardStyle ?? .curves
+        self.autoCheckUpdates = UserDefaults.standard.object(forKey: Key.autoCheckUpdates.rawValue) as? Bool ?? true
+        self.githubRepository = UserDefaults.standard.string(forKey: Key.githubRepository.rawValue) ?? Preferences.defaultRepository
+        self.dismissedUpdateVersion = UserDefaults.standard.string(forKey: Key.dismissedUpdateVersion.rawValue) ?? ""
     }
 
     private func persist(_ value: [ServerConfig]) {
@@ -224,5 +238,23 @@ final class Preferences: ObservableObject {
     var floatingFrame: String? {
         get { store.string(forKey: Key.floatingFrame.rawValue) }
         set { store.set(newValue, forKey: Key.floatingFrame.rawValue) }
+    }
+
+    /// 上一次真的去 GitHub 问的时间，0 表示从没问过
+    var lastUpdateCheck: TimeInterval {
+        get { store.double(forKey: Key.lastUpdateCheck.rawValue) }
+        set { store.set(newValue, forKey: Key.lastUpdateCheck.rawValue) }
+    }
+
+    /// 上一次查到的 Release，重启后面板立刻有得显示，不用等网络
+    var lastReleaseData: Data {
+        get { store.data(forKey: Key.lastReleaseData.rawValue) ?? Data() }
+        set { store.set(newValue, forKey: Key.lastReleaseData.rawValue) }
+    }
+
+    /// 上一次启动时的版本号；和这次的不一样的话就是刚更新过，要弹一次更新内容
+    var lastLaunchedVersion: String {
+        get { store.string(forKey: Key.lastLaunchedVersion.rawValue) ?? "" }
+        set { store.set(newValue, forKey: Key.lastLaunchedVersion.rawValue) }
     }
 }

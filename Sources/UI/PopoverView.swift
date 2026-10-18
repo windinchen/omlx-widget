@@ -4,10 +4,12 @@ import AppKit
 struct PopoverView: View {
     @ObservedObject var state: WidgetState
     @ObservedObject var prefs: Preferences
+    @ObservedObject var updater: UpdateChecker
 
     init(state: WidgetState = WidgetState.shared, prefs: Preferences = Preferences.shared) {
         self.state = state
         self.prefs = prefs
+        self.updater = UpdateChecker.shared
     }
 
     var body: some View {
@@ -18,6 +20,9 @@ struct PopoverView: View {
             }
             if let error = state.lastError, !state.isOnline {
                 banner(text: error, tint: Palette.kind(.offline))
+            }
+            if let release = updater.bannerRelease {
+                updateBanner(release)
             }
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 9) {
@@ -551,6 +556,42 @@ struct PopoverView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tint.opacity(0.12)))
+    }
+
+    /// GitHub 上有更新时的横幅：下载、看说明、忽略这一版，三个动作都在面板里办完
+    private func updateBanner(_ release: GitHubRelease) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "arrow.up.circle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(Palette.kind(.loading))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("小工具新版本 \(release.tagName) 可下载")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("当前 v\(AppVersion.current.description)\(publishedSuffix(release))")
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            GhostButton(title: "下载", systemImage: "arrow.down.circle") {
+                if let url = release.downloadURL ?? updater.latestURL {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            GhostButton(title: "更新内容", systemImage: "text.page", showsTitle: false) {
+                AppController.shared?.showUpdateWindow()
+            }
+            GhostButton(title: "忽略这一版", systemImage: "xmark", showsTitle: false) {
+                updater.dismiss(release)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Palette.kind(.loading).opacity(0.14)))
+    }
+
+    /// 发布时间拼在版本号后面；解析不出来就只留版本号，别露出 ISO8601 原文
+    private func publishedSuffix(_ release: GitHubRelease) -> String {
+        release.publishedText.map { " · 发布于 \($0)" } ?? ""
     }
 }
 
