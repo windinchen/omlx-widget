@@ -250,7 +250,9 @@ struct UpdateView: View {
             }
             Spacer(minLength: 4)
             Button("知道了") {
-                AppController.shared?.closeUpdateWindow()
+                // closeUpdateWindow() 是 @MainActor 隔离的；Xcode 15 的 SDK 里 SwiftUI 的
+                // action 闭包不带隔离，直接调用在 CI 上编不过（本机新工具链会放过）
+                Task { @MainActor in AppController.shared?.closeUpdateWindow() }
             }
             .keyboardShortcut(.defaultAction)
         }
