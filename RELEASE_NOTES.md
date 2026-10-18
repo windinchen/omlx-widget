@@ -88,6 +88,11 @@ cd omlx-widget
 
 ### 校验和
 
+下载后在终端核对（把文件名换成你下载到的那个）：
+
+```bash
+shasum -a 256 ~/Downloads/oMLX.1.9.dmg
 ```
-SHA256 (oMLX 小工具 1.9.dmg) = 7f2b4bd1b1de87b6a8c82e4129169de0a3fcabd4494f8c555c75ef06b7944cac
-```
+
+标准值见 Release 附件里的 **`SHA256.txt`** — 由 CI 在构建 dmg 的同一步生成，永远对得上发布出去的那个文件。
+本机自行构建的 dmg 与 CI 产物字节不同（打包时间戳等元数据），所以这里不写死哈希。
