@@ -11,7 +11,7 @@ BIN_NAME="omlx-widget"
 BUNDLE_ID="local.windinchen.omlx-widget"
 # 版本号每次发布进 0.01（1.9 → 1.10 → 1.11），除非特意安排了别的跨度
 # 改这里就够了：dmg 名字、安装包里的版本、更新弹窗显示的版本都跟着走；./build.sh --bump 会自动加 0.01
-VERSION="1.10"
+VERSION="1.11"
 
 MODE="debug"
 RUN_AFTER=0
