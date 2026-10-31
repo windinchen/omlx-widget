@@ -185,7 +185,8 @@
 
 ### 从 Release 下载（推荐）
 
-1. 打开 [Releases](https://github.com/windinchen/omlx-widget/releases) 下载最新的 `oMLX 小工具 x.x.dmg`
+1. 打开 [Releases](https://github.com/windinchen/omlx-widget/releases) 下载最新的 `oMLX.x.x.dmg`
+   （上传到 Release 时包名里的中文与空格被换成了点，本机构建出来的仍叫 `oMLX 小工具 x.x.dmg`）
 2. 双击打开，把 `oMLX 小工具.app` 拖到旁边的 `Applications`
 3. 从「应用程序」启动，**菜单栏出现小圆点**即成功
 

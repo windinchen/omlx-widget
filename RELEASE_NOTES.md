@@ -54,7 +54,7 @@
 
 ### 安装
 
-下载 `oMLX 小工具 1.13.dmg`，打开后把 App 拖进 Applications。首次启动若提示「无法验证开发者」，
+下载 `oMLX.1.13.dmg`，打开后把 App 拖进 Applications。首次启动若提示「无法验证开发者」，
 右键 App → 打开，确认一次即可（ad-hoc 签名，未做公证）。
 
 **要求**：macOS 14.0+，Apple Silicon。
