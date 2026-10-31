@@ -453,14 +453,19 @@ final class WidgetState: ObservableObject {
     }
 
     func toggleModel(_ model: ModelEntry) async {
+        await toggleModel(id: model.id, loaded: model.loaded ?? false)
+    }
+
+    /// 面板与局域网网页都走这里：网页那边只有模型名，没有整条 ModelEntry
+    func toggleModel(id: String, loaded: Bool) async {
         guard let client = makeClient(timeout: 180) else { return }
-        let shouldLoad = !(model.loaded ?? false)
-        pendingModelID = model.id
-        notice = shouldLoad ? "正在加载 \(model.id)…" : "正在卸载 \(model.id)…"
-        let path = "/v1/models/\(model.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? model.id)/\(shouldLoad ? "load" : "unload")"
+        let shouldLoad = !loaded
+        pendingModelID = id
+        notice = shouldLoad ? "正在加载 \(id)…" : "正在卸载 \(id)…"
+        let path = "/v1/models/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)/\(shouldLoad ? "load" : "unload")"
         do {
             _ = try await client.raw(path, method: "POST")
-            notice = shouldLoad ? "已发起加载：\(model.id)" : "已卸载：\(model.id)"
+            notice = shouldLoad ? "已发起加载：\(id)" : "已卸载：\(id)"
             modelList = nil
             await poll(force: true)
         } catch {

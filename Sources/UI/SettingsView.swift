@@ -1,5 +1,7 @@
 import SwiftUI
 import ServiceManagement
+import AppKit
+import CoreImage
 
 final class SettingsModel: ObservableObject {
     @Published var message: String?
@@ -11,6 +13,7 @@ struct SettingsView: View {
     @ObservedObject var state: WidgetState
     @ObservedObject var model: SettingsModel
     @ObservedObject var updater: UpdateChecker
+    @StateObject private var lan = LanServer.shared
 
     init(
         prefs: Preferences = Preferences.shared,
@@ -163,6 +166,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            lanSection
             Section("系统") {
                 Toggle("登录后自动启动", isOn: $model.launchAtLogin)
                     .onChange(of: model.launchAtLogin) {
@@ -186,7 +190,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 660)
+        .frame(width: 460, height: 780)
         .onAppear { model.launchAtLogin = (SMAppService.mainApp.status == .enabled) }
     }
 
@@ -239,6 +243,71 @@ struct SettingsView: View {
         Text("版本号每次发布进 0.01（1.9 之后是 1.10），比对按点分段逐段比数值，不会把 1.10 当成比 1.9 旧。发现新版本时状态栏圆点会长出橙点，面板顶部出现横幅；更新完的第一次启动会弹一次更新内容，说明读自安装包里的 ReleaseNotes.md 与 GitHub 上那条 Release 的正文。")
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
+    }
+
+    /// 局域网访问：开关、端口、口令，外加能扫的二维码与实际监听地址
+    /// 单独抽出来同样是为了别让 Form 里的类型推断胀成一大坨
+    @ViewBuilder
+    private var lanSection: some View {
+        Section("局域网访问") {
+            Toggle("允许局域网设备打开面板", isOn: $prefs.lanEnabled)
+            HStack(spacing: 8) {
+                Text("端口")
+                TextField("端口", value: $prefs.lanPort, format: .number.grouping(.never))
+                    .frame(maxWidth: 76)
+                    .multilineTextAlignment(.trailing)
+                    .font(.system(size: 11).monospacedDigit())
+                    .disabled(!prefs.lanEnabled)
+                Text("访问口令")
+                TextField("留空则同网段都能看", text: $prefs.lanAccessKey)
+                    .font(.system(size: 11).monospacedDigit())
+                    .disabled(!prefs.lanEnabled)
+            }
+            HStack(spacing: 8) {
+                Text("当前状态")
+                Spacer()
+                Text(lan.status.label)
+                    .font(.system(size: 11))
+                    .foregroundStyle(lan.status.port == nil ? Color.secondary : Palette.kind(.busy))
+                if let at = lan.lastHitAt {
+                    Text("被访问 \(lan.hits) 次 · 最近 \(Fmt.clock(at))")
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            if let url = lan.shareURLs.first {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(lan.shareURLs, id: \.absoluteString) { address in
+                        HStack(spacing: 8) {
+                            Text(address.absoluteString)
+                                .font(.system(size: 11).monospacedDigit())
+                                .textSelection(.enabled)
+                            Spacer()
+                            GhostButton(title: "拷贝", systemImage: "doc.on.doc") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(address.absoluteString, forType: .string)
+                            }
+                        }
+                    }
+                }
+                HStack(alignment: .top, spacing: 12) {
+                    QRCodeView(text: url.absoluteString)
+                        .frame(width: 92, height: 92)
+                        .padding(6)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text("手机连同一个 Wi-Fi，扫码就开。网页读的是这台 Mac 上小工具已经采到的数据，不会再多问 oMLX 一次；速度曲线、内存四档、GPU 与温度、今日 24 小时柱状图、加载 / 卸载与测速都在页面上。")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text("端口被占用时会自动往上找，上面显示的就是实际端口。填了访问口令，链接会自动带上 ?key=，别人没口令打不开接口。")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Text("第一次开启 macOS 可能问「是否允许接收传入网络连接」，点允许；万一误点了拒绝，去「系统设置 → 网络 → 防火墙」放行，否则页面会一直转圈。另外 oMLX 自己要监听 0.0.0.0（不是 127.0.0.1），局域网才连得上它。")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var menuBarGPUBinding: Binding<Bool> {
@@ -315,3 +384,33 @@ struct SettingsView: View {
         }
     }
 }
+
+/// 二维码用 CoreImage 现生成，不为这点功能引第三方库
+struct QRCodeView: View {
+    let text: String
+
+    var body: some View {
+        if let image = Self.render(text) {
+            Image(nsImage: image)
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+        } else {
+            Image(systemName: "qrcode")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private static func render(_ text: String) -> NSImage? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator"),
+              let data = text.data(using: .utf8) else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 6, y: 6)) else { return nil }
+        let image = CIContext().createCGImage(output, from: output.extent)
+        guard let cgImage = image else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+}
+

@@ -122,6 +122,12 @@ enum CardStyle: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// 局域网那一路的默认端口：7979 是 oMLX 自己的，往上挑一个不常被人占的；
+/// 真被占了 LanServer 会自己往上找，设置页显示实际监听到的端口
+enum LanDefaults {
+    static let port = 7999
+}
+
 final class Preferences: ObservableObject {
     static let shared = Preferences()
 
@@ -144,6 +150,10 @@ final class Preferences: ObservableObject {
     @Published var appearanceMode: AppearanceMode { didSet { store.set(appearanceMode.rawValue, forKey: Key.appearanceMode.rawValue) } }
     @Published var cardStyle: CardStyle { didSet { store.set(cardStyle.rawValue, forKey: Key.cardStyle.rawValue) } }
     @Published var autoCheckUpdates: Bool { didSet { store.set(autoCheckUpdates, forKey: Key.autoCheckUpdates.rawValue) } }
+    @Published var lanEnabled: Bool { didSet { store.set(lanEnabled, forKey: Key.lanEnabled.rawValue) } }
+    @Published var lanPort: Int { didSet { store.set(lanPort, forKey: Key.lanPort.rawValue) } }
+    /// 留空 = 同一个网段谁打开都行；填了之后每个请求都得带 ?key=
+    @Published var lanAccessKey: String { didSet { store.set(lanAccessKey, forKey: Key.lanAccessKey.rawValue) } }
     @Published var githubRepository: String { didSet { store.set(githubRepository, forKey: Key.githubRepository.rawValue) } }
     /// 用户点过"忽略这个版本"的小版本号：只在版本号和 GitHub 上那个完全相同时才屏蔽
     @Published var dismissedUpdateVersion: String { didSet { store.set(dismissedUpdateVersion, forKey: Key.dismissedUpdateVersion.rawValue) } }
@@ -167,6 +177,9 @@ final class Preferences: ObservableObject {
         case cardStyle = "omlx.cardStyle"
         case floatingFrame = "omlx.floatingFrame"
         case autoCheckUpdates = "omlx.autoCheckUpdates"
+        case lanEnabled = "omlx.lanEnabled"
+        case lanPort = "omlx.lanPort"
+        case lanAccessKey = "omlx.lanAccessKey"
         case githubRepository = "omlx.githubRepo"
         case dismissedUpdateVersion = "omlx.dismissedUpdateVersion"
         case lastUpdateCheck = "omlx.lastUpdateCheck"
@@ -216,6 +229,10 @@ final class Preferences: ObservableObject {
         self.appearanceMode = storedAppearance ?? .system
         self.cardStyle = storedCardStyle ?? .curves
         self.autoCheckUpdates = UserDefaults.standard.object(forKey: Key.autoCheckUpdates.rawValue) as? Bool ?? true
+        self.lanEnabled = UserDefaults.standard.object(forKey: Key.lanEnabled.rawValue) as? Bool ?? true
+        let storedPort = UserDefaults.standard.integer(forKey: Key.lanPort.rawValue)
+        self.lanPort = (1...65_535).contains(storedPort) ? storedPort : LanDefaults.port
+        self.lanAccessKey = UserDefaults.standard.string(forKey: Key.lanAccessKey.rawValue) ?? ""
         self.githubRepository = UserDefaults.standard.string(forKey: Key.githubRepository.rawValue) ?? Preferences.defaultRepository
         self.dismissedUpdateVersion = UserDefaults.standard.string(forKey: Key.dismissedUpdateVersion.rawValue) ?? ""
     }

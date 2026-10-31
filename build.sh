@@ -105,7 +105,8 @@ SOURCES=()
 while IFS= read -r source_file; do
   SOURCES+=("$source_file")
 done < <(find Sources -name '*.swift' | sort)
-FLAGS=(-swift-version 5 -target arm64-apple-macosx14.0 -framework AppKit -framework SwiftUI)
+# Network：局域网那一路的监听；CoreImage：设置页的二维码
+FLAGS=(-swift-version 5 -target arm64-apple-macosx14.0 -framework AppKit -framework SwiftUI -framework Network -framework CoreImage)
 if [ "$MODE" = "release" ]; then
   FLAGS+=(-O)
 fi

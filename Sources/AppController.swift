@@ -242,6 +242,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let state = WidgetState.shared
     private let prefs = Preferences.shared
     private let updater = UpdateChecker.shared
+    /// 局域网那一路：手机 / 别的电脑用浏览器看同一份数据
+    private let lan = LanServer.shared
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private lazy var floatingController = FloatingPanelController()
@@ -276,6 +278,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         bindState()
         state.start()
         syncFloating()
+        syncLan()
         updater.start()
         bindUpdater()
         presentWhatsNewOnFirstLaunch()
@@ -308,6 +311,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.applyAppearance() }
             .store(in: &cancellables)
+
+        // 局域网的开关 / 端口 / 口令任一改动都重建监听，不用重启
+        Publishers.Merge3(
+            prefs.$lanEnabled.map { _ in () },
+            prefs.$lanPort.map { _ in () },
+            prefs.$lanAccessKey.map { _ in () }
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] in self?.syncLan() }
+        .store(in: &cancellables)
 
         // "跟随系统"时系统换了深浅色得跟上：AppKit 没公开 NSApplication 的外观变更通知，用系统设置那条分布式通知
         _ = DistributedNotificationCenter.default().addObserver(
@@ -424,6 +437,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if let release = updater.bannerRelease {
             tooltip += "\n发现新版本 \(release.tagName)（当前 v\(AppVersion.current)）· 右键可下载"
         }
+        if let lanURL = lan.firstShareURLText {
+            tooltip += "\n局域网页面：\(lanURL)"
+        }
         button.toolTip = tooltip
     }
 
@@ -466,6 +482,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         menu.addItem(.separator())
         menu.addItem(withTitle: "打开控制台", action: #selector(menuOpenDashboard), keyEquivalent: "d").target = self
+        let lanItem = NSMenuItem(title: "局域网页面", action: nil, keyEquivalent: "")
+        lanItem.submenu = lanSubmenu()
+        menu.addItem(lanItem)
         menu.addItem(withTitle: "设置…", action: #selector(showSettings), keyEquivalent: ",").target = self
         menu.addItem(withTitle: "检查更新…", action: #selector(menuCheckUpdate), keyEquivalent: "").target = self
         menu.addItem(.separator())
@@ -506,6 +525,53 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if let url = state.dashboardURL() {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// 局域网服务跟着开关 / 端口 / 口令走：apply 自己判断要不要重建监听，重复调用没有副作用
+    private func syncLan() {
+        lan.apply(enabled: prefs.lanEnabled, port: prefs.lanPort, key: prefs.lanAccessKey)
+    }
+
+    @objc private func menuToggleLan() {
+        prefs.lanEnabled.toggle()
+    }
+
+    @objc private func menuCopyLanURL() {
+        guard let text = lan.firstShareURLText else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    @objc private func menuOpenLanPage() {
+        if let url = lan.shareURLs.first {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// 右键菜单里的「局域网页面」：状态、地址、拷贝、开关都在这一层
+    private func lanSubmenu() -> NSMenu {
+        let submenu = NSMenu()
+        submenu.addItem(withTitle: lan.status.label, action: nil, keyEquivalent: "")
+        for url in lan.shareURLs.prefix(2) {
+            let item = NSMenuItem(title: url.absoluteString, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            submenu.addItem(item)
+        }
+        if lan.status.port != nil {
+            submenu.addItem(.separator())
+            let copy = NSMenuItem(title: "拷贝地址", action: #selector(menuCopyLanURL), keyEquivalent: "")
+            copy.target = self
+            submenu.addItem(copy)
+            let open = NSMenuItem(title: "在浏览器中打开", action: #selector(menuOpenLanPage), keyEquivalent: "")
+            open.target = self
+            submenu.addItem(open)
+        }
+        submenu.addItem(.separator())
+        let toggle = NSMenuItem(title: "允许局域网访问", action: #selector(menuToggleLan), keyEquivalent: "")
+        toggle.target = self
+        toggle.state = prefs.lanEnabled ? .on : .off
+        submenu.addItem(toggle)
+        return submenu
     }
 
     /// 菜单里的"下载新版本"：直接开弹窗，里面有下载地址和这一版的说明
