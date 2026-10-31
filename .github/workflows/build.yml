@@ -15,7 +15,8 @@ permissions:
 jobs:
   build:
     name: 编译并打包
-    runs-on: macos-14
+    # macOS 14 镜像 2026-11-02 退役（brownout 期间任务会直接失败），换到 macOS 26
+    runs-on: macos-26
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
