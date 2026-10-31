@@ -44,17 +44,23 @@ struct SettingsView: View {
                     }
                     .padding(.vertical, 2)
                 }
-                HStack {
-                    Button {
-                        add()
-                    } label: {
-                        Label("添加服务器", systemImage: "plus")
+                Button {
+                    add()
+                } label: {
+                    Label("添加服务器", systemImage: "plus")
+                }
+                HStack(spacing: 8) {
+                    Text("API Key")
+                    SecureField("oMLX 开了鉴权才需要，留空不鉴权", text: $prefs.apiKey)
+                        .font(.system(size: 11).monospacedDigit())
+                    GhostButton(title: "测试连接", systemImage: "bolt.circle") {
+                        testConnection()
                     }
-                    Spacer()
-                    SecureField("API Key（可选）", text: $prefs.apiKey)
-                        .frame(maxWidth: 180)
                 }
                 Text("家外的机器可以先起一条 SSH 隧道，再把地址填成 http://127.0.0.1:<本地端口>。")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text("oMLX 若开启了鉴权（设置里能看到 API Key），这里不填就会一直显示离线，面板顶部会出现横幅让你直接贴 key。改完点「测试连接」立即重试，不用重启。")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
@@ -295,6 +301,17 @@ struct SettingsView: View {
             }
         } catch {
             model.message = "登录项设置失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 用当前填的地址与 key 立刻打一发，结果写回设置页底部那行小字
+    private func testConnection() {
+        model.message = "正在连接…"
+        Task { @MainActor in
+            await state.refresh()
+            model.message = state.isOnline
+                ? "连接成功：\(state.serverName) · \(state.loadedCount) 个模型已加载"
+                : "连不上：\(state.lastError ?? "未知错误")"
         }
     }
 }

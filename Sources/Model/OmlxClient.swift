@@ -3,14 +3,23 @@ import Foundation
 enum OmlxError: LocalizedError {
     case invalidURL(String)
     case http(Int, String)
+    /// 401 / 403：oMLX 开了鉴权，key 没填或者不对，和"连不上"是两回事
+    case auth(Int, String)
     case transport(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidURL(let raw): return "地址无法解析：\(raw)"
         case .http(let code, let body): return "HTTP \(code) \(body.prefix(120))"
+        case .auth(let code, _): return "oMLX 要求 API Key（HTTP \(code)）"
         case .transport(let message): return message
         }
+    }
+
+    /// 面板据此决定是催用户填 key，还是照常提示隧道 / 服务没起
+    var requiresAPIKey: Bool {
+        if case .auth = self { return true }
+        return false
     }
 }
 
@@ -65,6 +74,9 @@ struct OmlxClient {
             }
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data.prefix(400), encoding: .utf8) ?? ""
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    throw OmlxError.auth(http.statusCode, body)
+                }
                 throw OmlxError.http(http.statusCode, body)
             }
             return (data, latency)

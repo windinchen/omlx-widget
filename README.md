@@ -208,8 +208,12 @@
 
 点左边的圆圈切换当前使用的服务器。支持添加多台，切换后曲线与统计会重置重算。
 
-> **oMLX 开了鉴权？** 在「服务器」区块右侧的 `API Key` 框里填，
-> 会以 `Authorization: Bearer <key>` 发送。留空表示不鉴权。
+> **oMLX 开了鉴权？** 在「服务器」区块的 `API Key` 框里填，
+> 会以 `Authorization: Bearer <key>` 发送，只存本机。留空表示不鉴权。
+> 旁边有「测试连接」，改完立刻重试，不用重启。
+>
+> key 没填或不对时，面板顶部会出现单独的「oMLX 需要 API Key」横幅，
+> 把 key 直接贴进横幅就能连上，不用先去设置页翻。
 
 ### 2.（可选）配置 GPU 与温度
 
@@ -410,7 +414,7 @@ ControlPersist=300
 |---|---|
 | 服务器列表 | 每行：单选圆圈 + 名称 + 地址 + 删除按钮（至少保留一台） |
 | 添加服务器 | 追加一台，默认 `http://127.0.0.1:8000` |
-| API Key | 可选。填了就带 `Authorization: Bearer`，留空不鉴权 |
+| API Key | 可选。填了就带 `Authorization: Bearer`，留空不鉴权；旁边「测试连接」立即重试 |
 
 ### 刷新与显示
 
@@ -561,6 +565,10 @@ curl http://127.0.0.1:7979/api/status
 ```
 
 隧道若做成了 LaunchAgent，可用 `launchctl kickstart -k gui/$(id -u)/<你的隧道标签>` 重连。
+
+返回 `{"detail":"API key required"}` 或 `Invalid API key` 是**另一回事**：隧道和服务都正常，
+只是 oMLX 开了鉴权而小工具没填 key（或 key 被轮换过）。这时面板显示「oMLX 需要 API Key」横幅，
+贴进 key 就恢复；key 在 oMLX 控制台的设置页里。
 
 ### 速度数字跳动或归零
 

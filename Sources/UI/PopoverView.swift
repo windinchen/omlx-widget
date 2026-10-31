@@ -19,7 +19,11 @@ struct PopoverView: View {
                 banner(text: notice, tint: Color.accentColor)
             }
             if let error = state.lastError, !state.isOnline {
-                banner(text: error, tint: Palette.kind(.offline))
+                if state.needsAPIKey {
+                    apiKeyBanner(error)
+                } else {
+                    banner(text: error, tint: Palette.kind(.offline))
+                }
             }
             if let release = updater.bannerRelease {
                 updateBanner(release)
@@ -587,6 +591,55 @@ struct PopoverView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Palette.kind(.loading).opacity(0.14)))
+    }
+
+    /// oMLX 开了鉴权而 key 没填 / 不对：不用去设置里翻，横幅里直接贴 key，下一轮轮询就连上
+    private func apiKeyBanner(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Image(systemName: "key.slash.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.kind(.offline))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("oMLX 需要 API Key")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("隧道是通的，服务端拒绝了请求：\(message)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 4)
+            }
+            HStack(spacing: 6) {
+                SecureField("粘贴 oMLX 的 API Key", text: $prefs.apiKey)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11).monospacedDigit())
+                    .onSubmit { retryNow() }
+                GhostButton(title: "连接", systemImage: "checkmark.circle", isDisabled: prefs.apiKey.isEmpty) {
+                    retryNow()
+                }
+                GhostButton(title: "打开设置", systemImage: "gearshape", showsTitle: false) {
+                    AppController.shared?.showSettings()
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.06)))
+            Text(prefs.apiKey.isEmpty
+                 ? "key 在 oMLX 控制台的设置页里；贴进来就自动重连，只存本机。"
+                 : "已经填过但仍在被拒，核对一下 oMLX 那边是不是轮换过 key。")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Palette.kind(.offline).opacity(0.14)))
+    }
+
+    /// 填完 key 不必等下一个轮询周期，立刻打一发
+    private func retryNow() {
+        Task { await state.refresh() }
     }
 
     /// 发布时间拼在版本号后面；解析不出来就只留版本号，别露出 ISO8601 原文

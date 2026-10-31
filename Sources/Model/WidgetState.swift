@@ -57,6 +57,8 @@ final class WidgetState: ObservableObject {
     @Published private(set) var latencyMillis: Double?
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var lastError: String?
+    /// 上一次失败是因为 oMLX 要 API Key：面板换成一个能直接填 key 的横幅
+    @Published private(set) var needsAPIKey = false
     @Published private(set) var liveTps: Double = 0
     @Published private(set) var prefillTps: Double = 0
     @Published private(set) var tpsSeries: [Double] = []
@@ -254,7 +256,7 @@ final class WidgetState: ObservableObject {
                 applyHeatmap()
             }
         } catch {
-            setOffline(error.localizedDescription)
+            setOffline(error.localizedDescription, needsKey: (error as? OmlxError)?.requiresAPIKey ?? false)
         }
     }
 
@@ -283,6 +285,7 @@ final class WidgetState: ObservableObject {
         latencyMillis = latency * 1_000
         lastUpdated = now
         lastError = nil
+        needsAPIKey = false
 
         let inflightNow = liveModels.flatMap { $0.generating ?? [] }
         inflight = inflightNow
@@ -403,7 +406,8 @@ final class WidgetState: ObservableObject {
         heatmap = values
     }
 
-    private func setOffline(_ message: String) {
+    private func setOffline(_ message: String, needsKey: Bool = false) {
+        needsAPIKey = needsKey
         isOnline = false
         lastError = message
         isBusy = false
